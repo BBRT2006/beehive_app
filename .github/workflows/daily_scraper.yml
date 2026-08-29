@@ -2,9 +2,8 @@ name: Daily Fire Risk Scraper
 
 on:
   schedule:
-    # Runs every day at 11:00 UTC (14:00 Athens Time)
     - cron: '0 11 * * *'
-  workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,7 +18,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install Dependencies
         run: npm install axios cheerio
@@ -32,4 +31,4 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add fire_risk.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update fire risk data" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update fire risk data" && git push origin main)
