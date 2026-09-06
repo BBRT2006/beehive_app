@@ -3,13 +3,21 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 
 async function scrape() {
+  // 1. Πλήρης λίστα με όλους τους Νομούς / Μεγάλα νησιά
   const regions = [
-    'Ξάνθη', 'Ροδόπη', 'Έβρος', 'Καβάλα', 'Χαλκιδική',
-    'Θεσσαλονίκη', 'Αττική', 'Βοιωτία', 'Εύβοια', 'Κορινθία',
-    'Ηράκλειο', 'Χανιά', 'Ρέθυμνο', 'Λασίθι', 'Λέσβος', 'Χίος', 'Ρόδος'
+    "Έβρος", "Ροδόπη", "Ξάνθη", "Καβάλα", "Δράμα", "Σέρρες", "Κιλκίς",
+    "Πέλλα", "Ημαθία", "Θεσσαλονίκη", "Χαλκιδική", "Φλώρινα", "Κοζάνη",
+    "Καστοριά", "Γρεβενά", "Ιωάννινα", "Άρτα", "Θεσπρωτία", "Πρέβεζα",
+    "Λάρισα", "Μαγνησία", "Τρίκαλα", "Καρδίτσα", "Φθιώτιδα", "Εύβοια",
+    "Βοιωτία", "Φωκίδα", "Ευρυτανία", "Αιτωλοακαρνανία", "Αττική", "Πειραιάς",
+    "Αχαΐα", "Ηλεία", "Αρκαδία", "Κορινθία", "Αργολίδα", "Μεσσηνία", "Λακωνία",
+    "Κέρκυρα", "Κεφαλληνία", "Κεφαλονιά", "Ζάκυνθος", "Λευκάδα", "Ιθάκη",
+    "Λέσβος", "Χίος", "Σάμος", "Λήμνος", "Ικαρία", "Κυκλάδες", "Δωδεκάνησα",
+    "Ρόδος", "Κως", "Κάρπαθος", "Σποράδες", "Θάσος", "Σαμοθράκη",
+    "Ηράκλειο", "Χανιά", "Ρέθυμνο", "Λασίθι"
   ];
 
-  // Default baseline map
+  // Default baseline map (Ορίζουμε την κατηγορία 2 ως προεπιλογή για όλους)
   const regionRiskMap = {};
   regions.forEach((r) => { regionRiskMap[r] = 2; });
 
@@ -31,15 +39,21 @@ async function scrape() {
       sourceUrl = href.startsWith('http') ? href : `https://civilprotection.gov.gr${href}`;
       const { data: detailHtml } = await axios.get(sourceUrl, { timeout: 10000 });
       const detail$ = cheerio.load(detailHtml);
-      const text = detail$('body').text();
+      const text = detail$('body').text().toLowerCase();
 
       regions.forEach((region) => {
-        if (text.includes('Κατηγορία 4') && text.slice(text.indexOf('Κατηγορία 4')).includes(region)) {
-          regionRiskMap[region] = 4;
-        } else if (text.includes('Κατηγορία 5') && text.slice(text.indexOf('Κατηγορία 5')).includes(region)) {
-          regionRiskMap[region] = 5;
-        } else if (text.includes('Κατηγορία 3') && text.slice(text.indexOf('Κατηγορία 3')).includes(region)) {
-          regionRiskMap[region] = 3;
+        const lowerRegion = region.toLowerCase();
+        // Regex: Ψάχνει την περιοχή ως ολόκληρη λέξη, για να μην πάρει το "Κως" μέσα από τη λέξη "όπως"
+        const regex = new RegExp(`(?:^|\\s|-|\\.|,)${lowerRegion}(?:$|\\s|-|\\.|,)`, 'i');
+
+        if (regex.test(text)) {
+          if (text.includes('κατηγορία 5') || text.includes('κατάσταση συναγερμού')) {
+            regionRiskMap[region] = 5;
+          } else if (text.includes('κατηγορία 4') || text.includes('πολύ υψηλός')) {
+            regionRiskMap[region] = 4;
+          } else if ((text.includes('κατηγορία 3') || text.includes('υψηλός κίνδυνος')) && regionRiskMap[region] < 3) {
+            regionRiskMap[region] = 3;
+          }
         }
       });
     }

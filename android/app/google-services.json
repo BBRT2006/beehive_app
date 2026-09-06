@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "82035437667",
+    "project_id": "beehive-scale-project",
+    "storage_bucket": "beehive-scale-project.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:82035437667:android:726ad522cbc982f6bec856",
+        "android_client_info": {
+          "package_name": "com.example.beehive_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBka_tmsto5onUaynYDz1HyvzLjiKKxwtA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

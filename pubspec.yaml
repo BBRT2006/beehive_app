@@ -36,11 +36,31 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.2.0
   supabase_flutter: ^2.17.2
+  url_launcher: ^6.2.1
+  shared_preferences: ^2.5.3
+  firebase_core: ^4.14.0
+  firebase_messaging: ^16.6.0
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
+  volume_controller: ^3.6.1
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+  flutter_lints: ^6.0.0
 
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  web:
+    generate: true
+    image_path: "assets/app_icon.png"
+    background_color: "#F1F5F9"
+    theme_color: "#D97706"
+  image_path: "assets/app_icon.png"
+  min_sdk_android: 21
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
@@ -58,6 +78,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/audio/siren.mp3
 
   # To add assets to your application, add an assets section, like this:
   # assets:
