@@ -14,6 +14,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:volume_controller/volume_controller.dart'; 
 
+// Global foreground player
+final AudioPlayer _foregroundPlayer = AudioPlayer();
+
 // 1. Αυτή η συνάρτηση τρέχει στο παρασκήνιο (όταν το app είναι εντελώς κλειστό)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -22,6 +25,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint("🚨 ΞΥΠΝΗΜΑ ΣΤΟ ΠΑΡΑΣΚΗΝΙΟ: Ήρθε ειδοποίηση με ID: ${message.messageId}");
   
   final prefs = await SharedPreferences.getInstance();
+  await prefs.reload();
 
   final title = message.notification?.title ?? message.data['title'] ?? '';
   final type = message.data['type'] ?? '';
@@ -30,78 +34,85 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   final isTheft = type == 'theft' || title.contains('ΚΛΟΠΗ') || title.contains('THEFT') || title.contains('ΣΥΝΑΓΕΡΜΟΣ');
 
-  // --- ΑΥΣΤΗΡΗ ΑΠΟΦΥΓΗ ΔΙΠΛΟΤΥΠΩΝ (60-second Debounce) ---
+  // --- ΑΥΣΤΗΡΗ ΑΠΟΦΥΓΗ ΔΙΠΛΟΤΥΠΩΝ (5-minute Debounce) ---
   final history = prefs.getStringList('alerts_history_log') ?? [];
   bool isDuplicate = false;
-  if (history.isNotEmpty) {
+  
+  for (var log in history) {
     try {
-      final lastItem = jsonDecode(history.first);
-      final lastTime = DateTime.parse(lastItem['date']);
-      // Αν ήρθε άλλη ειδοποίηση τα τελευταία 60 δευτερόλεπτα, ΑΓΝΟΗΣΕ ΤΗΝ ΕΝΤΕΛΩΣ
-      if (DateTime.now().difference(lastTime).inSeconds < 60) {
+      final item = jsonDecode(log);
+      final logTime = DateTime.parse(item['date']);
+      // Αν υπάρχει ήδη κλοπή για αυτή την κυψέλη τα τελευταία 5 λεπτά, είναι διπλότυπο!
+      if (isTheft && item['isTheft'] == true && item['hive_id'] == hiveId && DateTime.now().difference(logTime).inMinutes < 5) {
         isDuplicate = true;
+        break;
       }
     } catch (_) {}
   }
 
-  // Αγνόησε άδεια "ping" μηνύματα συστήματος
-  if (title.isEmpty && (message.notification?.body ?? message.data['body'] ?? '').isEmpty && !isTheft) {
+  // Αγνόησε άδεια μηνύματα ή διπλότυπα
+  if (isDuplicate || (title.isEmpty && (message.notification?.body ?? message.data['body'] ?? '').isEmpty && !isTheft)) {
     return;
   }
 
-  if (!isDuplicate) {
-    final logEntry = jsonEncode({
-      'title': isTheft ? '🚨 Συναγερμός Κλοπής' : (title.isNotEmpty ? title : 'Ειδοποίηση'),
-      'body': message.notification?.body ?? message.data['body'] ?? '',
-      'date': DateTime.now().toIso8601String(),
-      'isTheft': isTheft,
-      'hive_id': hiveId,
-      'hive_name': hiveName,
-    });
-    history.insert(0, logEntry);
-    await prefs.setStringList('alerts_history_log', history);
-  }
+  // Καταγραφή στο ιστορικό
+  final logEntry = jsonEncode({
+    'title': isTheft ? '🚨 Συναγερμός Κλοπής' : (title.isNotEmpty ? title : 'Ειδοποίηση'),
+    'body': message.notification?.body ?? message.data['body'] ?? '',
+    'date': DateTime.now().toIso8601String(),
+    'isTheft': isTheft,
+    'hive_id': hiveId,
+    'hive_name': hiveName,
+  });
+  history.insert(0, logEntry);
+  await prefs.setStringList('alerts_history_log', history);
 
-  // Αν είναι όντως κλοπή, βάρα τη σειρήνα στο System Media Channel
+  // Αν είναι όντως κλοπή, βάρα τη σειρήνα
   if (isTheft) {
     await prefs.setBool('stop_alarm', false);
 
-    // Βάζουμε την ένταση στο 95% 
+    // 1. Βάζουμε την ένταση στο 95% 
     try { VolumeController.instance.setVolume(0.95); } catch (_) {}
 
-    bool volumeListenerActive = false;
+    // 2. Περιμένουμε 1.5 δευτερόλεπτο για να περάσει ο ήχος του Android 
+    // και να προλάβει να εδραιωθεί το 95% volume.
+    await Future.delayed(const Duration(milliseconds: 1500));
+
+    // 3. Παίρνουμε τη νέα βάση έντασης
+    double? baselineVol;
+    try { baselineVol = await VolumeController.instance.getVolume(); } catch (_) {}
+
+    // 4. Ξεκινάμε να ακούμε τα κουμπιά (Single-Click Kill Switch)
     try {
-      double? initialVolume;
-      try { initialVolume = await VolumeController.instance.getVolume(); } catch (_) {}
-      
       VolumeController.instance.addListener((volume) async {
-        if (volumeListenerActive && initialVolume != null) {
-          // Αν ο χρήστης πατήσει Vol Up ή Vol Down (διαφορά > 2%), κόψε τον ήχο
-          if ((volume - initialVolume!).abs() > 0.02) {
-            await prefs.setBool('stop_alarm', true);
-          }
+        if (baselineVol != null && (volume - baselineVol!).abs() > 0.02) {
+          await prefs.setBool('stop_alarm', true); // Κλείνει με 1 κλικ!
         }
       });
     } catch (_) {}
 
-    await Future.delayed(const Duration(milliseconds: 3500));
-    volumeListenerActive = true;
-
+    // 5. Παίζει το custom MP3 στο System Media Channel
     final AudioPlayer bgPlayer = AudioPlayer();
     try {
+      await bgPlayer.setAudioContext(AudioContext(
+        android: AudioContextAndroid(
+          usageType: AndroidUsageType.media,
+          contentType: AndroidContentType.music,
+          audioFocus: AndroidAudioFocus.gainTransientExclusive,
+        ),
+      ));
       await bgPlayer.setReleaseMode(ReleaseMode.loop);
       await bgPlayer.play(AssetSource('audio/siren.mp3'), volume: 1.0);
     } catch (e) {
       debugPrint("AudioPlayer Background Error: $e");
     }
 
-    // Κρατάμε το background isolate ζωντανό
+    // 6. Κρατάμε το background isolate ζωντανό
     for (int i = 0; i < 300; i++) { 
       await Future.delayed(const Duration(seconds: 1));
       await prefs.reload(); 
       if (prefs.getBool('stop_alarm') == true) {
-        try { await bgPlayer.stop(); } catch(_) {}
-        break;
+        break; // Ο χρήστης πάτησε το κουμπί έντασης!
       }
     }
     
@@ -1019,8 +1030,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
   bool _showTransportSlider = false; 
   
   SharedPreferences? _prefs;
-  
-  AudioPlayer? _audioPlayer; // Local instance for Foreground audio
 
   Future<void> _saveDeviceToken() async {
     final user = supabase.auth.currentUser;
@@ -1043,7 +1052,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
 
   // Silences the sound ONLY
   Future<void> _silenceSirenOnly() async {
-    try { await _audioPlayer?.stop(); } catch(_) {}
+    try { await _foregroundPlayer.stop(); } catch(_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('stop_alarm', true);
   }
@@ -1063,7 +1072,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
     _initPrefs();
     _loadUserHives();
     _saveDeviceToken();
-    _audioPlayer = AudioPlayer();
     
     // Foreground message handler
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
@@ -1079,44 +1087,49 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       final prefs = await SharedPreferences.getInstance();
       final history = prefs.getStringList('alerts_history_log') ?? [];
       bool isDuplicate = false;
-      if (history.isNotEmpty) {
+      
+      for (var log in history) {
         try {
-          final lastItem = jsonDecode(history.first);
-          final lastTime = DateTime.parse(lastItem['date']);
-          if (DateTime.now().difference(lastTime).inSeconds < 60) {
+          final item = jsonDecode(log);
+          final logTime = DateTime.parse(item['date']);
+          if (isTheft && item['isTheft'] == true && item['hive_id'] == hiveId && DateTime.now().difference(logTime).inMinutes < 5) {
             isDuplicate = true;
+            break;
           }
         } catch (_) {}
       }
 
-      if (title.isEmpty && (message.notification?.body ?? message.data['body'] ?? '').isEmpty && !isTheft) {
+      if (isDuplicate || (title.isEmpty && (message.notification?.body ?? message.data['body'] ?? '').isEmpty && !isTheft)) {
         return;
       }
 
-      if (!isDuplicate) {
-        final logEntry = jsonEncode({
-          'title': isTheft ? '🚨 Συναγερμός Κλοπής' : (title.isNotEmpty ? title : 'Ειδοποίηση'),
-          'body': message.notification?.body ?? message.data['body'] ?? '',
-          'date': DateTime.now().toIso8601String(),
-          'isTheft': isTheft,
-          'hive_id': hiveId,
-          'hive_name': hiveName,
-        });
-        history.insert(0, logEntry);
-        await prefs.setStringList('alerts_history_log', history);
-        setState(() {}); 
-      }
+      final logEntry = jsonEncode({
+        'title': isTheft ? '🚨 Συναγερμός Κλοπής' : (title.isNotEmpty ? title : 'Ειδοποίηση'),
+        'body': message.notification?.body ?? message.data['body'] ?? '',
+        'date': DateTime.now().toIso8601String(),
+        'isTheft': isTheft,
+        'hive_id': hiveId,
+        'hive_name': hiveName,
+      });
+      history.insert(0, logEntry);
+      await prefs.setStringList('alerts_history_log', history);
+      setState(() {}); 
 
       if (isTheft) {
-        try {
-          VolumeController.instance.setVolume(0.95); 
-        } catch (_) {}
+        try { VolumeController.instance.setVolume(0.95); } catch (_) {}
 
-        await Future.delayed(const Duration(milliseconds: 3500));
+        await Future.delayed(const Duration(milliseconds: 1500));
         
         try {
-          await _audioPlayer?.setReleaseMode(ReleaseMode.loop);
-          await _audioPlayer?.play(AssetSource('audio/siren.mp3'), volume: 1.0);
+          await _foregroundPlayer.setAudioContext(AudioContext(
+            android: AudioContextAndroid(
+              usageType: AndroidUsageType.media,
+              contentType: AndroidContentType.music,
+              audioFocus: AndroidAudioFocus.gainTransientExclusive,
+            ),
+          ));
+          await _foregroundPlayer.setReleaseMode(ReleaseMode.loop);
+          await _foregroundPlayer.play(AssetSource('audio/siren.mp3'), volume: 1.0);
         } catch (e) {
           debugPrint("AudioPlayer Foreground Error: $e");
         }
@@ -1129,7 +1142,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       _loadUserHives(); 
     });
 
-    // Hardware volume button listener
+    // Hardware volume button listener (Single-Click Kill Switch)
     try {
       double? lastVol;
       VolumeController.instance.getVolume().then((v) => lastVol = v).catchError((_) {});
@@ -1196,7 +1209,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
     _sirenTimer?.cancel();
     _globalTicker?.cancel();
     try {
-      _audioPlayer?.dispose();
+      _foregroundPlayer.dispose();
     } catch(_) {}
     try {
       VolumeController.instance.removeListener();
@@ -2554,17 +2567,11 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
 
     // 2. Add Saved FCM/Theft Alert Logs
     final loggedAlerts = _prefs?.getStringList('alerts_history_log') ?? [];
-    final Set<String> seenLogKeys = {}; // DEDUPLICATION IN UI
     for (var log in loggedAlerts) {
       try {
         final Map<String, dynamic> item = jsonDecode(log);
         final date = DateTime.tryParse(item['date'] ?? '') ?? DateTime.now();
         final isTheftItem = item['isTheft'] == true;
-        
-        // UNIQUE KEY: HiveID + Day + Hour + Minute + isTheft
-        final dedupeKey = "${item['hive_id']}_${date.day}_${date.hour}_${date.minute}_$isTheftItem";
-        if (seenLogKeys.contains(dedupeKey)) continue; // Skip rendering if we already showed this event!
-        seenLogKeys.add(dedupeKey);
 
         drawerAlertWidgets.add(
           ListTile(
@@ -2592,12 +2599,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                   ),
                 );
                 if (confirm == true) {
-                  // We remove ALL logs that match this time to ensure the dupe is fully purged from disk
-                  loggedAlerts.removeWhere((l) {
-                    final i = jsonDecode(l);
-                    final d = DateTime.tryParse(i['date'] ?? '') ?? DateTime.now();
-                    return "${i['hive_id']}_${d.day}_${d.hour}_${d.minute}_${i['isTheft']}" == dedupeKey;
-                  });
+                  loggedAlerts.remove(log);
                   await _prefs?.setStringList('alerts_history_log', loggedAlerts);
                   setState(() {});
                 }
@@ -2970,7 +2972,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                           style: const TextStyle(color: Colors.white70, fontSize: 14),
                         ),
                         const SizedBox(height: 12),
-                        // ΚΟΥΜΠΙΑ ΣΥΝΑΓΕΡΜΟΥ & TRACK DOWN
                         Row(
                           children: [
                             Expanded(
@@ -3499,7 +3500,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                 ),
                 const SizedBox(height: 12),
 
-                // 🗺️ INTERACTIVE MAPS & LOCATION
+                // INTERACTIVE MAPS & LOCATION
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -3573,7 +3574,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                 ),
                 const SizedBox(height: 12),
 
-                // TWO-STEP TRANSPORT BUTTON LOGIC
+                // TRANSPORT MODE
                 if (hive.isTransportMode)
                   ElevatedButton.icon(
                     onPressed: _showPostTransportNameDialog,
