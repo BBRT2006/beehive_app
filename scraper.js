@@ -102,5 +102,4 @@ async function scrape() {
     await browser.close();
   }
 }
-
 scrape();
