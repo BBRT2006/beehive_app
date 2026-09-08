@@ -59,9 +59,15 @@ async function scrape() {
 
       if (imageUrl) {
         console.log('Βρέθηκε εικόνα χάρτη:', imageUrl);
-        console.log('Ξεκινάει η Τεχνητή Νοημοσύνη (OCR)...');
+        console.log('Κατέβασμα εικόνας μέσω του browser για αποφυγή του firewall...');
 
-        const { data: { text } } = await Tesseract.recognize(imageUrl, 'ell');
+        // Ο browser πάει στο URL της εικόνας και την κατεβάζει στη μνήμη (buffer)
+        const viewSource = await page.goto(imageUrl);
+        const imageBuffer = await viewSource.buffer();
+
+        console.log('Ξεκινάει η Τεχνητή Νοημοσύνη (OCR)...');
+        // Δίνουμε τη μνήμη (imageBuffer) στο AI αντί για το URL
+        const { data: { text } } = await Tesseract.recognize(imageBuffer, 'ell');
         console.log(`--- ΚΕΙΜΕΝΟ ΑΠΟ ΕΙΚΟΝΑ ${i + 1} ---`);
         console.log(text.substring(0, 300) + '...'); 
         
