@@ -74,29 +74,30 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     // 1. Βάζουμε την ένταση στο 95% 
     try { VolumeController.instance.setVolume(0.95); } catch (_) {}
 
-    // 2. Περιμένουμε 1.5 δευτερόλεπτο για να περάσει ο ήχος του Android 
-    // και να προλάβει να εδραιωθεί το 95% volume.
-    await Future.delayed(const Duration(milliseconds: 1500));
+    // 2. Περιμένουμε 2 δευτερόλεπτα (αυξήθηκε) για να προλάβει να εδραιωθεί 
+    // το volume στο Android πριν ξεκινήσουμε να ακούμε τα κουμπιά.
+    await Future.delayed(const Duration(milliseconds: 2000));
 
-    // 3. Παίρνουμε τη νέα βάση έντασης
+    // 3. Παίρνουμε τη νέα βάση έντασης (αφού έχει γίνει 95%)
     double? baselineVol;
     try { baselineVol = await VolumeController.instance.getVolume(); } catch (_) {}
 
     // 4. Ξεκινάμε να ακούμε τα κουμπιά (Single-Click Kill Switch)
     try {
       VolumeController.instance.addListener((volume) async {
-        if (baselineVol != null && (volume - baselineVol).abs() > 0.02) {
+        if (baselineVol != null && (volume - baselineVol!).abs() > 0.02) {
           await prefs.setBool('stop_alarm', true); // Κλείνει με 1 κλικ!
         }
+        baselineVol = volume; // ΠΑΝΤΑ ανανεώνουμε τη βάση για να μην κολλήσει
       });
     } catch (_) {}
 
-    // 5. Παίζει το custom MP3 στο System Media Channel
+    // 5. Παίζει το custom MP3 ως ALARM (Παρακάμπτει την Αθόρυβη Λειτουργία)
     final AudioPlayer bgPlayer = AudioPlayer();
     try {
       await bgPlayer.setAudioContext(AudioContext(
         android: AudioContextAndroid(
-          usageType: AndroidUsageType.media,
+          usageType: AndroidUsageType.alarm, // ΑΛΛΑΞΕ ΣΕ ALARM
           contentType: AndroidContentType.music,
           audioFocus: AndroidAudioFocus.gainTransientExclusive,
         ),
@@ -1020,6 +1021,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
   bool _blinkRed = false;
 
   bool isSyncing = false;
+  bool _isForcingVolume = false; // FLAG ADDED HERE
 
   double _visibleHours = 48.0;
   double _scrollOffset = 0.0;
@@ -1116,14 +1118,17 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       setState(() {}); 
 
       if (isTheft) {
+        _isForcingVolume = true; // Μπλοκάρουμε το Listener προσωρινά!
         try { VolumeController.instance.setVolume(0.95); } catch (_) {}
 
-        await Future.delayed(const Duration(milliseconds: 1500));
+        // Περιμένουμε 2 δευτερόλεπτα και ξεμπλοκάρουμε το Listener
+        await Future.delayed(const Duration(milliseconds: 2000));
+        _isForcingVolume = false; 
         
         try {
           await _foregroundPlayer.setAudioContext(AudioContext(
             android: AudioContextAndroid(
-              usageType: AndroidUsageType.media,
+              usageType: AndroidUsageType.alarm, // ΑΛΛΑΞΕ ΣΕ ALARM
               contentType: AndroidContentType.music,
               audioFocus: AndroidAudioFocus.gainTransientExclusive,
             ),
@@ -1148,6 +1153,12 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       // ignore: body_might_complete_normally_catch_error
       VolumeController.instance.getVolume().then((v) => lastVol = v).catchError((_) {});
       VolumeController.instance.addListener((volume) {
+        // Αν η εφαρμογή αλλάζει την ένταση μόνη της, αγνόησέ το!
+        if (_isForcingVolume) {
+          lastVol = volume;
+          return;
+        }
+
         if (lastVol != null && (volume - lastVol!).abs() > 0.02) {
           final h = activeHive;
           if (h != null && h.isTheftAlertTriggered) {

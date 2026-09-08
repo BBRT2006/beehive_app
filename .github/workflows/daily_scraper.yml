@@ -26,7 +26,8 @@ jobs:
       - name: Install Dependencies
         run: |
           npm install puppeteer tesseract.js
-          npx puppeteer browsers install chrome
+          chmod +x ./node_modules/.bin/puppeteer
+          npx puppeteer browsers install chrome 
 
       - name: Run Scraper
         run: node scraper.js
