@@ -24,7 +24,7 @@ jobs:
           node-version: 24
 
       - name: Install Dependencies
-        run: npm install axios cheerio
+        run: npm install puppeteer tesseract.js
 
       - name: Run Scraper
         run: node scraper.js

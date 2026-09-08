@@ -85,7 +85,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     // 4. Ξεκινάμε να ακούμε τα κουμπιά (Single-Click Kill Switch)
     try {
       VolumeController.instance.addListener((volume) async {
-        if (baselineVol != null && (volume - baselineVol!).abs() > 0.02) {
+        if (baselineVol != null && (volume - baselineVol).abs() > 0.02) {
           await prefs.setBool('stop_alarm', true); // Κλείνει με 1 κλικ!
         }
       });
@@ -597,7 +597,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } on AuthException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message, style: const TextStyle(fontSize: 16))));
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to link Google.', style: const TextStyle(fontSize: 16))));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to link Google.', style: TextStyle(fontSize: 16))));
     } finally {
       if (mounted) setState(() => _linking = false);
     }
@@ -732,7 +732,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     Switch(
                       value: widget.isWeightGainNotificationEnabled,
-                      activeColor: const Color(0xFF0284C7),
+                      activeThumbColor: const Color(0xFF0284C7),
                       onChanged: widget.onWeightGainNotificationToggled,
                     ),
                   ],
@@ -758,7 +758,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     Switch(
                       value: widget.isSwarmingNotificationEnabled,
-                      activeColor: const Color(0xFFD97706),
+                      activeThumbColor: const Color(0xFFD97706),
                       onChanged: widget.onSwarmingNotificationToggled,
                     ),
                   ],
@@ -1145,6 +1145,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
     // Hardware volume button listener (Single-Click Kill Switch)
     try {
       double? lastVol;
+      // ignore: body_might_complete_normally_catch_error
       VolumeController.instance.getVolume().then((v) => lastVol = v).catchError((_) {});
       VolumeController.instance.addListener((volume) {
         if (lastVol != null && (volume - lastVol!).abs() > 0.02) {
@@ -2948,7 +2949,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                     decoration: BoxDecoration(
                       color: const Color(0xFF7F1D1D), 
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4))]
+                      boxShadow: [BoxShadow(color: Colors.red.withValues(alpha: 0.4), blurRadius: 8, offset: const Offset(0, 4))]
                     ),
                     child: Column(
                       children: [
@@ -3156,7 +3157,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                         ),
                       Switch(
                         value: hive.isInspectionMode,
-                        activeColor: const Color(0xFFD97706),
+                        activeThumbColor: const Color(0xFFD97706),
                         onChanged: (v) => setState(() {
                           if (v) {
                             hive.isInspectionMode = true;
@@ -3181,7 +3182,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
                     borderRadius: BorderRadius.circular(18),
-                    boxShadow: [BoxShadow(color: const Color(0xFFD97706).withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6))],
+                    boxShadow: [BoxShadow(color: const Color(0xFFD97706).withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 6))],
                   ),
                   child: Column(
                     children: [
@@ -3215,7 +3216,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                           onTap: () => _showOverallHistoryDialog(hive),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(color: Colors.black.withOpacity(0.22), borderRadius: BorderRadius.circular(12)),
+                            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(12)),
                             child: Text('${netGain >= 0 ? '+' : ''}🍯 ${netGain.toStringAsFixed(1)} kg ${t['overall']}', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)),
                           ),
                         ),
@@ -3551,14 +3552,14 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            Container(decoration: BoxDecoration(color: Colors.black.withOpacity(0.25), borderRadius: BorderRadius.circular(12))),
+                            Container(decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.25), borderRadius: BorderRadius.circular(12))),
                             Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 const Icon(Icons.location_pin, color: Colors.redAccent, size: 30),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(color: Colors.black.withOpacity(0.75), borderRadius: BorderRadius.circular(6)),
+                                  decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.75), borderRadius: BorderRadius.circular(6)),
                                   child: Text(
                                     hive.regionDescription,
                                     style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
@@ -3592,7 +3593,7 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                         const SizedBox(width: 10),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(color: Colors.white.withOpacity(0.25), borderRadius: BorderRadius.circular(8)),
+                          decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.25), borderRadius: BorderRadius.circular(8)),
                           child: Text(_formatTimer(hive.transportRemaining), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)),
                         ),
                       ],
@@ -3670,7 +3671,7 @@ class _SlideToStartTransportState extends State<SlideToStartTransport> {
         final maxDrag = constraints.maxWidth - 56;
         return Container(
           height: 56,
-          decoration: BoxDecoration(color: const Color(0xFFD97706).withOpacity(0.15), borderRadius: BorderRadius.circular(28), border: Border.all(color: const Color(0xFFD97706).withOpacity(0.3))),
+          decoration: BoxDecoration(color: const Color(0xFFD97706).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(28), border: Border.all(color: const Color(0xFFD97706).withValues(alpha: 0.3))),
           child: Stack(
             alignment: Alignment.centerLeft,
             children: [
@@ -3754,8 +3755,9 @@ class WeightChartPainter extends CustomPainter {
       final textPainter = TextPainter(text: textSpan, textDirection: TextDirection.ltr)..layout();
       
       double dx = x;
-      if (alignRight) dx = x - textPainter.width;
-      else if (alignCenter) dx = x - (textPainter.width / 2);
+      if (alignRight) {
+        dx = x - textPainter.width;
+      } else if (alignCenter) dx = x - (textPainter.width / 2);
       
       textPainter.paint(canvas, Offset(dx, y));
     }
@@ -3765,7 +3767,7 @@ class WeightChartPainter extends CustomPainter {
 
     final linePaint = Paint()..color = const Color(0xFFD97706)..strokeWidth = 3..style = PaintingStyle.stroke..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round;
     final fillPaint = Paint()
-      ..shader = LinearGradient(colors: [const Color(0xFFF59E0B).withOpacity(0.35), const Color(0xFFF59E0B).withOpacity(0.0)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromLTWH(0, 0, size.width, chartHeight))
+      ..shader = LinearGradient(colors: [const Color(0xFFF59E0B).withValues(alpha: 0.35), const Color(0xFFF59E0B).withValues(alpha: 0.0)], begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(Rect.fromLTWH(0, 0, size.width, chartHeight))
       ..style = PaintingStyle.fill;
 
     final path = Path();

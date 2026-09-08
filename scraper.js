@@ -1,9 +1,8 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
 const fs = require('fs');
+const Tesseract = require('tesseract.js');
 
 async function scrape() {
-  // 1. Πλήρης λίστα με όλους τους Νομούς / Μεγάλα νησιά
   const regions = [
     "Έβρος", "Ροδόπη", "Ξάνθη", "Καβάλα", "Δράμα", "Σέρρες", "Κιλκίς",
     "Πέλλα", "Ημαθία", "Θεσσαλονίκη", "Χαλκιδική", "Φλώρινα", "Κοζάνη",
@@ -17,51 +16,83 @@ async function scrape() {
     "Ηράκλειο", "Χανιά", "Ρέθυμνο", "Λασίθι"
   ];
 
-  // Default baseline map (Ορίζουμε την κατηγορία 2 ως προεπιλογή για όλους)
   const regionRiskMap = {};
   regions.forEach((r) => { regionRiskMap[r] = 2; });
 
   let sourceUrl = 'https://civilprotection.gov.gr/arxeio-imerision-xartwn';
 
+  console.log('Ανοίγει ο αόρατος browser...');
+  const browser = await puppeteer.launch({ 
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+  });
+  const page = await browser.newPage();
+  
+  // Κάνουμε τον browser να φαίνεται σαν κανονικό Chrome
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+
   try {
-    const { data: html } = await axios.get(sourceUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 10000
+    console.log('Πλοήγηση στη σελίδα της Πολιτικής Προστασίας...');
+    await page.goto(sourceUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    // Βρίσκουμε το link για τον σημερινό/αυριανό χάρτη
+    const linkHref = await page.evaluate(() => {
+      const link = document.querySelector('a[href*="xartis-provlepsis"], a[href*="imerisios-xartis"], .views-row a');
+      return link ? link.href : null;
     });
 
-    const $ = cheerio.load(html);
-    const linkEl = $('a[href*="xartis-provlepsis"], a[href*="imerisios-xartis"], .views-row a').first();
-    const href = linkEl.attr('href');
+    if (linkHref) {
+      console.log('Βρέθηκε η ανακοίνωση:', linkHref);
+      await page.goto(linkHref, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    if (href) {
-      sourceUrl = href.startsWith('http') ? href : `https://civilprotection.gov.gr${href}`;
-      const { data: detailHtml } = await axios.get(sourceUrl, { timeout: 10000 });
-      const detail$ = cheerio.load(detailHtml);
-      const text = detail$('body').text().toLowerCase();
-
-      regions.forEach((region) => {
-        const lowerRegion = region.toLowerCase();
-        // Regex: Ψάχνει την περιοχή ως ολόκληρη λέξη, για να μην πάρει το "Κως" μέσα από τη λέξη "όπως"
-        const regex = new RegExp(`(?:^|\\s|-|\\.|,)${lowerRegion}(?:$|\\s|-|\\.|,)`, 'i');
-
-        if (regex.test(text)) {
-          if (text.includes('κατηγορία 5') || text.includes('κατάσταση συναγερμού')) {
-            regionRiskMap[region] = 5;
-          } else if (text.includes('κατηγορία 4') || text.includes('πολύ υψηλός')) {
-            regionRiskMap[region] = 4;
-          } else if ((text.includes('κατηγορία 3') || text.includes('υψηλός κίνδυνος')) && regionRiskMap[region] < 3) {
-            regionRiskMap[region] = 3;
-          }
-        }
+      // Βρίσκουμε την εικόνα του χάρτη (jpg, png ή γενικά image)
+      const imageUrl = await page.evaluate(() => {
+        const img = document.querySelector('a[href$=".jpg"], a[href$=".png"]') || document.querySelector('img');
+        return img ? (img.href || img.src) : null;
       });
+
+      if (imageUrl) {
+        console.log('Βρέθηκε εικόνα χάρτη:', imageUrl);
+        console.log('Ξεκινάει η Τεχνητή Νοημοσύνη (OCR)...');
+
+        const { data: { text } } = await Tesseract.recognize(
+          imageUrl,
+          'ell', 
+          { logger: m => console.log(`Πρόοδος OCR: ${m.status} ${Math.round(m.progress * 100)}%`) }
+        );
+
+        console.log('\n--- ΚΕΙΜΕΝΟ ΠΟΥ ΔΙΑΒΑΣΕ ΤΟ AI ---');
+        console.log(text.substring(0, 500) + '...'); 
+        console.log('---------------------------------\n');
+
+        const lowerText = text.toLowerCase();
+
+        regions.forEach((region) => {
+          const lowerRegion = region.toLowerCase();
+          const regex = new RegExp(`(?:^|\\s|-|\\.|,)${lowerRegion}(?:$|\\s|-|\\.|,)`, 'i');
+
+          if (regex.test(lowerText)) {
+             if (lowerText.includes('κατηγορία 5') || lowerText.includes('συναγερμού')) {
+               regionRiskMap[region] = 5;
+             } else if (lowerText.includes('κατηγορία 4') || lowerText.includes('πολύ υψηλός')) {
+               regionRiskMap[region] = 4;
+             } else if (lowerText.includes('κατηγορία 3') || lowerText.includes('υψηλός')) {
+               regionRiskMap[region] = 3;
+             }
+          }
+        });
+      } else {
+        console.warn('Δεν βρέθηκε εικόνα χάρτη μέσα στην ανακοίνωση.');
+      }
+    } else {
+      console.warn('Δεν βρέθηκε ανακοίνωση χάρτη στην αρχική.');
     }
   } catch (err) {
-    console.warn('Scraping warning (using defaults):', err.message);
+    console.error('Σφάλμα κατά την πλοήγηση:', err.message);
+  } finally {
+    await browser.close(); // Κλείνουμε τον browser για να μην τρώει μνήμη
   }
 
-  // Always guaranteed to write valid JSON
   const output = {
     lastUpdated: new Date().toISOString(),
     sourceUrl: sourceUrl,
@@ -69,7 +100,7 @@ async function scrape() {
   };
 
   fs.writeFileSync('fire_risk.json', JSON.stringify(output, null, 2));
-  console.log('Successfully wrote fire_risk.json!');
+  console.log('Το fire_risk.json ενημερώθηκε!');
 }
 
 scrape();
