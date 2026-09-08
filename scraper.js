@@ -1,111 +1,1090 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
-const Tesseract = require('tesseract.js');
+const Jimp = require('jimp');
 
-async function scrape() {
-  const regions = [
-    "Έβρος", "Ροδόπη", "Ξάνθη", "Καβάλα", "Δράμα", "Σέρρες", "Κιλκίς",
-    "Πέλλα", "Ημαθία", "Θεσσαλονίκη", "Χαλκιδική", "Φλώρινα", "Κοζάνη",
-    "Καστοριά", "Γρεβενά", "Ιωάννινα", "Άρτα", "Θεσπρωτία", "Πρέβεζα",
-    "Λάρισα", "Μαγνησία", "Τρίκαλα", "Καρδίτσα", "Φθιώτιδα", "Εύβοια",
-    "Βοιωτία", "Φωκίδα", "Ευρυτανία", "Αιτωλοακαρνανία", "Αττική", "Πειραιάς",
-    "Αχαΐα", "Ηλεία", "Αρκαδία", "Κορινθία", "Αργολίδα", "Μεσσηνία", "Λακωνία",
-    "Κέρκυρα", "Κεφαλληνία", "Κεφαλονιά", "Ζάκυνθος", "Λευκάδα", "Ιθάκη",
-    "Λέσβος", "Χίος", "Σάμος", "Λήμνος", "Ικαρία", "Κυκλάδες", "Δωδεκάνησα",
-    "Ρόδος", "Κως", "Κάρπαθος", "Σποράδες", "Θάσος", "Σαμοθράκη",
-    "Ηράκλειο", "Χανιά", "Ρέθυμνο", "Λασίθι"
-  ];
+// ============================================================
+// FIRE RISK MAP - ΠΕΡΙΦΕΡΕΙΑΚΕΣ ΕΝΟΤΗΤΕΣ ΕΛΛΑΔΑΣ
+// ============================================================
 
-  let sourceUrl = 'https://civilprotection.gov.gr/arxeio-imerision-xartwn?page=0%2C0';
+const sourceUrl =
+  'https://civilprotection.gov.gr/arxeio-imerision-xartwn?page=0%2C0';
 
-  console.log('Ανοίγει ο αόρατος browser...');
-  const browser = await puppeteer.launch({ 
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-  });
-  const page = await browser.newPage();
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-  try {
-    console.log('Πλοήγηση στη λίστα αρχείου της Πολιτικής Προστασίας...');
-    await page.goto(sourceUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+// ============================================================
+// 74 ΠΕΡΙΦΕΡΕΙΑΚΕΣ ΕΝΟΤΗΤΕΣ
+// ============================================================
+//
+// Οι συντεταγμένες είναι X,Y σε pixels του χάρτη 1384x1453.
+//
+// X -> από αριστερά προς δεξιά
+// Y -> από πάνω προς τα κάτω
+//
+// ============================================================
 
-    // Παίρνουμε τα 2 πιο πρόσφατα links από τη λίστα
-    const topTwoLinks = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('a'));
-      const mapLinks = links
-        .filter(a => a.innerText.toLowerCase().includes('χάρτ') || a.href.toLowerCase().includes('xart'))
-        .map(a => a.href);
-      // Αφαιρούμε τα διπλότυπα και κρατάμε τα 2 πρώτα
-      return [...new Set(mapLinks)].slice(0, 2);
-    });
+const regionPixels = {
 
-    console.log('Βρέθηκαν τα 2 τελευταία links:', topTwoLinks);
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΑΝΑΤΟΛΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ & ΘΡΑΚΗΣ
+  // ==========================================================
 
-    // Προσωρινό αντικείμενο για να κρατήσουμε τα δεδομένα και των 2 ημερών
-    let daysData = [];
+  "ΠΕ Έβρου": {
+    x: 790,
+    y: 290
+  },
 
-    // Για κάθε ένα από τα 2 links...
-    for (let i = 0; i < topTwoLinks.length; i++) {
-      console.log(`\n=== Επεξεργασία Link ${i + 1} ===`);
-      console.log(`Άνοιγμα: ${topTwoLinks[i]}`);
-      
-      await page.goto(topTwoLinks[i], { waitUntil: 'domcontentloaded', timeout: 30000 });
+  "ΠΕ Ροδόπης": {
+    x: 725,
+    y: 290
+  },
 
-      const imageUrl = await page.evaluate(() => {
-        const img = document.querySelector('a[href$=".jpg"], a[href$=".png"], .field--type-image img');
-        return img ? (img.href || img.src) : null;
-      });
+  "ΠΕ Ξάνθης": {
+    x: 675,
+    y: 300
+  },
 
-      if (imageUrl) {
-        console.log('Βρέθηκε εικόνα χάρτη:', imageUrl);
-        console.log('Κατέβασμα εικόνας μέσω του browser για αποφυγή του firewall...');
+  "ΠΕ Καβάλας": {
+    x: 625,
+    y: 330
+  },
 
-        // Ο browser πάει στο URL της εικόνας και την κατεβάζει στη μνήμη (buffer)
-        const viewSource = await page.goto(imageUrl);
-        const imageBuffer = await viewSource.buffer();
+  "ΠΕ Δράμας": {
+    x: 610,
+    y: 290
+  },
 
-        console.log('Ξεκινάει η Τεχνητή Νοημοσύνη (OCR)...');
-        // Δίνουμε τη μνήμη (imageBuffer) στο AI αντί για το URL
-        const { data: { text } } = await Tesseract.recognize(imageBuffer, 'ell');
-        console.log(`--- ΚΕΙΜΕΝΟ ΑΠΟ ΕΙΚΟΝΑ ${i + 1} ---`);
-        console.log(text.substring(0, 300) + '...'); 
-        
-        let regionRiskMap = {};
-        regions.forEach((r) => { regionRiskMap[r] = 2; }); // Προεπιλογή 2
+  "ΠΕ Θάσου": {
+    x: 680,
+    y: 360
+  },
 
-        const lowerText = text.toLowerCase();
-        regions.forEach((region) => {
-          const regex = new RegExp(`(?:^|\\s|-|\\.|,)${region.toLowerCase()}(?:$|\\s|-|\\.|,)`, 'i');
-          if (regex.test(lowerText)) {
-             if (lowerText.includes('κατηγορία 5') || lowerText.includes('συναγερμού')) regionRiskMap[region] = 5;
-             else if (lowerText.includes('κατηγορία 4') || lowerText.includes('πολύ υψηλός')) regionRiskMap[region] = 4;
-             else if (lowerText.includes('κατηγορία 3') || lowerText.includes('υψηλός')) regionRiskMap[region] = 3;
-          }
-        });
 
-        daysData.push({ url: topTwoLinks[i], regions: regionRiskMap });
-      } else {
-        console.warn(`Δεν βρέθηκε εικόνα στο Link ${i + 1}`);
-      }
-    }
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΚΕΝΤΡΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ
+  // ==========================================================
 
-    // Αποθήκευση - Προς το παρόν γράφουμε τα δεδομένα της πρώτης εικόνας 
-    // στο fire_risk.json για να μη σπάσει το Flutter app σου
-    if (daysData.length > 0) {
-      const output = {
-        lastUpdated: new Date().toISOString(),
-        sourceUrl: daysData[0].url,
-        regions: daysData[0].regions
-      };
-      fs.writeFileSync('fire_risk.json', JSON.stringify(output, null, 2));
-      console.log('\nΤο fire_risk.json ενημερώθηκε!');
-    }
+  "ΠΕ Ημαθίας": {
+    x: 410,
+    y: 420
+  },
 
-  } catch (err) {
-    console.error('Σφάλμα κατά την πλοήγηση:', err.message);
-  } finally {
-    await browser.close();
+  "ΠΕ Θεσσαλονίκης": {
+    x: 520,
+    y: 360
+  },
+
+  "ΠΕ Κιλκίς": {
+    x: 500,
+    y: 340
+  },
+
+  "ΠΕ Πέλλας": {
+    x: 445,
+    y: 380
+  },
+
+  "ΠΕ Πιερίας": {
+    x: 400,
+    y: 475
+  },
+
+  "ΠΕ Σερρών": {
+    x: 550,
+    y: 320
+  },
+
+  "ΠΕ Χαλκιδικής": {
+    x: 565,
+    y: 405
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΔΥΤΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ
+  // ==========================================================
+
+  "ΠΕ Γρεβενών": {
+    x: 360,
+    y: 540
+  },
+
+  "ΠΕ Καστοριάς": {
+    x: 250,
+    y: 510
+  },
+
+  "ΠΕ Κοζάνης": {
+    x: 350,
+    y: 470
+  },
+
+  "ΠΕ Φλώρινας": {
+    x: 280,
+    y: 430
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΗΠΕΙΡΟΥ
+  // ==========================================================
+
+  "ΠΕ Άρτας": {
+    x: 315,
+    y: 680
+  },
+
+  "ΠΕ Θεσπρωτίας": {
+    x: 210,
+    y: 560
+  },
+
+  "ΠΕ Ιωαννίνων": {
+    x: 300,
+    y: 600
+  },
+
+  "ΠΕ Πρέβεζας": {
+    x: 240,
+    y: 650
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΘΕΣΣΑΛΙΑΣ
+  // ==========================================================
+
+  "ΠΕ Καρδίτσας": {
+    x: 410,
+    y: 620
+  },
+
+  "ΠΕ Λάρισας": {
+    x: 450,
+    y: 570
+  },
+
+  "ΠΕ Μαγνησίας": {
+    x: 505,
+    y: 590
+  },
+
+  "ΠΕ Σποράδων": {
+    x: 590,
+    y: 600
+  },
+
+  "ΠΕ Τρικάλων": {
+    x: 350,
+    y: 600
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΙΟΝΙΩΝ ΝΗΣΩΝ
+  // ==========================================================
+
+  "ΠΕ Ζακύνθου": {
+    x: 200,
+    y: 820
+  },
+
+  "ΠΕ Κέρκυρας": {
+    x: 85,
+    y: 530
+  },
+
+  "ΠΕ Κεφαλληνίας": {
+    x: 180,
+    y: 720
+  },
+
+  "ΠΕ Λευκάδας": {
+    x: 180,
+    y: 660
+  },
+
+  "ΠΕ Ιθάκης": {
+    x: 205,
+    y: 735
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΔΥΤΙΚΗΣ ΕΛΛΑΔΑΣ
+  // ==========================================================
+
+  "ΠΕ Αιτωλοακαρνανίας": {
+    x: 290,
+    y: 820
+  },
+
+  "ΠΕ Αχαΐας": {
+    x: 300,
+    y: 800
+  },
+
+  "ΠΕ Ηλείας": {
+    x: 290,
+    y: 840
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΣΤΕΡΕΑΣ ΕΛΛΑΔΑΣ
+  // ==========================================================
+
+  "ΠΕ Βοιωτίας": {
+    x: 510,
+    y: 730
+  },
+
+  "ΠΕ Εύβοιας": {
+    x: 590,
+    y: 780
+  },
+
+  "ΠΕ Ευρυτανίας": {
+    x: 360,
+    y: 720
+  },
+
+  "ΠΕ Φθιώτιδας": {
+    x: 450,
+    y: 700
+  },
+
+  "ΠΕ Φωκίδας": {
+    x: 440,
+    y: 740
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΑΤΤΙΚΗΣ
+  // ==========================================================
+
+  "ΠΕ Κεντρικού Τομέα Αθηνών": {
+    x: 575,
+    y: 770
+  },
+
+  "ΠΕ Βορείου Τομέα Αθηνών": {
+    x: 570,
+    y: 745
+  },
+
+  "ΠΕ Νοτίου Τομέα Αθηνών": {
+    x: 580,
+    y: 805
+  },
+
+  "ΠΕ Δυτικού Τομέα Αθηνών": {
+    x: 550,
+    y: 775
+  },
+
+  "ΠΕ Ανατολικής Αττικής": {
+    x: 625,
+    y: 770
+  },
+
+  "ΠΕ Δυτικής Αττικής": {
+    x: 500,
+    y: 775
+  },
+
+  "ΠΕ Πειραιώς": {
+    x: 550,
+    y: 825
+  },
+
+  "ΠΕ Νήσων": {
+    x: 600,
+    y: 850
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΠΕΛΟΠΟΝΝΗΣΟΥ
+  // ==========================================================
+
+  "ΠΕ Αργολίδας": {
+    x: 500,
+    y: 830
+  },
+
+  "ΠΕ Αρκαδίας": {
+    x: 380,
+    y: 840
+  },
+
+  "ΠΕ Κορινθίας": {
+    x: 450,
+    y: 790
+  },
+
+  "ΠΕ Λακωνίας": {
+    x: 440,
+    y: 950
+  },
+
+  "ΠΕ Μεσσηνίας": {
+    x: 330,
+    y: 940
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΒΟΡΕΙΟΥ ΑΙΓΑΙΟΥ
+  // ==========================================================
+
+  "ΠΕ Λέσβου": {
+    x: 870,
+    y: 600
+  },
+
+  "ΠΕ Λήμνου": {
+    x: 750,
+    y: 480
+  },
+
+  "ΠΕ Χίου": {
+    x: 870,
+    y: 720
+  },
+
+  "ΠΕ Σάμου": {
+    x: 940,
+    y: 840
+  },
+
+  "ΠΕ Ικαρίας": {
+    x: 780,
+    y: 860
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΝΟΤΙΟΥ ΑΙΓΑΙΟΥ
+  // ==========================================================
+
+  "ΠΕ Άνδρου": {
+    x: 730,
+    y: 720
+  },
+
+  "ΠΕ Θήρας": {
+    x: 780,
+    y: 950
+  },
+
+  "ΠΕ Καλύμνου": {
+    x: 900,
+    y: 900
+  },
+
+  "ΠΕ Καρπάθου": {
+    x: 990,
+    y: 1010
+  },
+
+  "ΠΕ Κέας - Κύθνου": {
+    x: 700,
+    y: 850
+  },
+
+  "ΠΕ Κω": {
+    x: 900,
+    y: 950
+  },
+
+  "ΠΕ Μήλου": {
+    x: 690,
+    y: 880
+  },
+
+  "ΠΕ Μυκόνου": {
+    x: 800,
+    y: 850
+  },
+
+  "ΠΕ Νάξου": {
+    x: 800,
+    y: 900
+  },
+
+  "ΠΕ Πάρου": {
+    x: 760,
+    y: 880
+  },
+
+  "ΠΕ Ρόδου": {
+    x: 1025,
+    y: 975
+  },
+
+  "ΠΕ Σύρου": {
+    x: 745,
+    y: 825
+  },
+
+  "ΠΕ Τήνου": {
+    x: 760,
+    y: 780
+  },
+
+
+  // ==========================================================
+  // ΠΕΡΙΦΕΡΕΙΑ ΚΡΗΤΗΣ
+  // ==========================================================
+
+  "ΠΕ Ηρακλείου": {
+    x: 735,
+    y: 1250
+  },
+
+  "ΠΕ Λασιθίου": {
+    x: 820,
+    y: 1250
+  },
+
+  "ΠΕ Ρεθύμνης": {
+    x: 670,
+    y: 1230
+  },
+
+  "ΠΕ Χανίων": {
+    x: 600,
+    y: 1210
+  }
+
+};
+
+
+// ============================================================
+// RISK LEVEL
+// ============================================================
+//
+// 1 = Χαμηλή
+// 2 = Μέση
+// 3 = Υψηλή
+// 4 = Πολύ Υψηλή
+// 5 = Κατάσταση Συναγερμού
+//
+// ============================================================
+
+function getRiskLevel(r, g, b) {
+
+  // ΚΟΚΚΙΝΟ
+  if (
+    r > 180 &&
+    g < 100 &&
+    b < 100
+  ) {
+    return 5;
+  }
+
+  // ΠΟΡΤΟΚΑΛΙ
+  if (
+    r > 180 &&
+    g >= 80 &&
+    g < 190 &&
+    b < 120
+  ) {
+    return 4;
+  }
+
+  // ΚΙΤΡΙΝΟ
+  if (
+    r > 180 &&
+    g > 180 &&
+    b < 160
+  ) {
+    return 3;
+  }
+
+  // ΜΠΛΕ
+  if (
+    b > 140 &&
+    r < 180 &&
+    g < 210
+  ) {
+    return 2;
+  }
+
+  // ΠΡΑΣΙΝΟ
+  if (
+    g > 130 &&
+    r < 180 &&
+    b < 180
+  ) {
+    return 1;
+  }
+
+  // DEFAULT
+  return 2;
+}
+
+
+// ============================================================
+// RISK NAME
+// ============================================================
+
+function getRiskName(level) {
+
+  switch (level) {
+
+    case 1:
+      return "Χαμηλή";
+
+    case 2:
+      return "Μέση";
+
+    case 3:
+      return "Υψηλή";
+
+    case 4:
+      return "Πολύ Υψηλή";
+
+    case 5:
+      return "Κατάσταση Συναγερμού";
+
+    default:
+      return "Άγνωστο";
   }
 }
+
+
+// ============================================================
+// ANALYZE AREA AROUND COORDINATE
+// ============================================================
+
+function getRiskFromArea(
+  image,
+  centerX,
+  centerY,
+  radius = 4
+) {
+
+  const counts = {
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0
+  };
+
+  for (
+    let y = centerY - radius;
+    y <= centerY + radius;
+    y++
+  ) {
+
+    for (
+      let x = centerX - radius;
+      x <= centerX + radius;
+      x++
+    ) {
+
+      if (
+        x < 0 ||
+        y < 0 ||
+        x >= image.bitmap.width ||
+        y >= image.bitmap.height
+      ) {
+        continue;
+      }
+
+      const hex =
+        image.getPixelColor(x, y);
+
+      const rgba =
+        Jimp.intToRGBA(hex);
+
+      const risk =
+        getRiskLevel(
+          rgba.r,
+          rgba.g,
+          rgba.b
+        );
+
+      counts[risk]++;
+    }
+  }
+
+
+  // Βρίσκουμε ποιο χρώμα εμφανίζεται
+  // περισσότερο στην περιοχή.
+
+  let bestRisk = 2;
+  let bestCount = -1;
+
+  for (
+    const [risk, count]
+    of Object.entries(counts)
+  ) {
+
+    if (count > bestCount) {
+
+      bestCount = count;
+      bestRisk = Number(risk);
+
+    }
+  }
+
+  return {
+    risk: bestRisk,
+    counts: counts
+  };
+}
+
+
+// ============================================================
+// MAIN
+// ============================================================
+
+async function scrape() {
+
+  console.log("");
+  console.log("==========================================");
+  console.log("🔥 FIRE RISK MAP SCRAPER");
+  console.log("==========================================");
+  console.log("");
+
+  const browser =
+    await puppeteer.launch({
+
+      headless: true,
+
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox'
+      ]
+
+    });
+
+
+  const page =
+    await browser.newPage();
+
+
+  await page.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/122.0.0.0 Safari/537.36'
+  );
+
+
+  try {
+
+    // ========================================================
+    // OPEN ARCHIVE
+    // ========================================================
+
+    console.log(
+      "Άνοιγμα Civil Protection..."
+    );
+
+    await page.goto(
+      sourceUrl,
+      {
+        waitUntil: 'domcontentloaded',
+        timeout: 90000
+      }
+    );
+
+
+    // ========================================================
+    // FIND LATEST MAP
+    // ========================================================
+
+    const latestLink =
+      await page.evaluate(() => {
+
+        const links =
+          Array.from(
+            document.querySelectorAll('a')
+          );
+
+
+        const mapLinks =
+          links
+
+            .filter(a => {
+
+              const text =
+                (a.innerText || '')
+                .toLowerCase();
+
+              const href =
+                (a.href || '')
+                .toLowerCase();
+
+              return (
+                text.includes('χάρτ') ||
+                href.includes('xart')
+              );
+
+            })
+
+            .map(a => a.href);
+
+
+        return [
+          ...new Set(mapLinks)
+        ].slice(0, 1);
+
+      });
+
+
+    if (
+      latestLink.length === 0
+    ) {
+
+      throw new Error(
+        "Δεν βρέθηκε ο τελευταίος χάρτης."
+      );
+
+    }
+
+
+    console.log(
+      "Latest map:"
+    );
+
+    console.log(
+      latestLink[0]
+    );
+
+
+    // ========================================================
+    // OPEN MAP
+    // ========================================================
+
+    await page.goto(
+      latestLink[0],
+      {
+        waitUntil: 'domcontentloaded',
+        timeout: 90000
+      }
+    );
+
+
+    // ========================================================
+    // FIND IMAGE
+    // ========================================================
+
+    const imageUrl =
+      await page.evaluate(() => {
+
+        const img =
+          document.querySelector(
+            'a[href$=".jpg"], ' +
+            'a[href$=".jpeg"], ' +
+            'a[href$=".png"], ' +
+            '.field--type-image img'
+          );
+
+
+        if (!img) {
+          return null;
+        }
+
+
+        return (
+          img.href ||
+          img.src
+        );
+
+      });
+
+
+    if (!imageUrl) {
+
+      throw new Error(
+        "Δεν βρέθηκε εικόνα χάρτη."
+      );
+
+    }
+
+
+    console.log(
+      "Image:"
+    );
+
+    console.log(
+      imageUrl
+    );
+
+
+    // ========================================================
+    // DOWNLOAD IMAGE
+    // ========================================================
+
+    const response =
+      await page.goto(
+        imageUrl,
+        {
+          waitUntil: 'networkidle0',
+          timeout: 90000
+        }
+      );
+
+
+    if (!response) {
+
+      throw new Error(
+        "Αποτυχία λήψης εικόνας."
+      );
+
+    }
+
+
+    const imageBuffer =
+      await response.buffer();
+
+
+    // ========================================================
+    // LOAD IMAGE
+    // ========================================================
+
+    const image =
+      await Jimp.read(
+        imageBuffer
+      );
+
+
+    console.log("");
+    console.log(
+      `Image size: ` +
+      `${image.bitmap.width} x ` +
+      `${image.bitmap.height}`
+    );
+
+
+    // ========================================================
+    // CHECK IMAGE DIMENSIONS
+    // ========================================================
+
+    const EXPECTED_WIDTH = 1384;
+    const EXPECTED_HEIGHT = 1453;
+
+
+    if (
+      image.bitmap.width !== EXPECTED_WIDTH ||
+      image.bitmap.height !== EXPECTED_HEIGHT
+    ) {
+
+      throw new Error(
+        `Οι διαστάσεις του χάρτη άλλαξαν! ` +
+        `Βρέθηκε ${image.bitmap.width}x` +
+        `${image.bitmap.height}, ` +
+        `ενώ περιμέναμε ${EXPECTED_WIDTH}x` +
+        `${EXPECTED_HEIGHT}.`
+      );
+
+    }
+
+
+    // ========================================================
+    // ANALYZE ALL REGIONS
+    // ========================================================
+
+    console.log("");
+    console.log(
+      "=========================================="
+    );
+
+    console.log(
+      "ΑΝΑΛΥΣΗ 74 ΠΕΡΙΦΕΡΕΙΑΚΩΝ ΕΝΟΤΗΤΩΝ"
+    );
+
+    console.log(
+      "=========================================="
+    );
+
+
+    const regions = {};
+    const details = {};
+
+
+    for (
+      const [region, coords]
+      of Object.entries(regionPixels)
+    ) {
+
+      // ------------------------------------------------------
+      // CHECK COORDINATES
+      // ------------------------------------------------------
+
+      if (
+        coords.x < 0 ||
+        coords.y < 0 ||
+        coords.x >= image.bitmap.width ||
+        coords.y >= image.bitmap.height
+      ) {
+
+        console.log(
+          `❌ ${region}: ` +
+          `coordinates outside image`
+        );
+
+        regions[region] = 2;
+
+        continue;
+      }
+
+
+      // ------------------------------------------------------
+      // READ AREA
+      // ------------------------------------------------------
+
+      const result =
+        getRiskFromArea(
+          image,
+          coords.x,
+          coords.y,
+          4
+        );
+
+
+      const risk =
+        result.risk;
+
+
+      regions[region] =
+        risk;
+
+
+      details[region] = {
+
+        x: coords.x,
+
+        y: coords.y,
+
+        risk: risk,
+
+        riskName:
+          getRiskName(risk),
+
+        pixelCounts:
+          result.counts
+
+      };
+
+
+      console.log(
+        `${region}: ` +
+        `${risk} - ` +
+        `${getRiskName(risk)}`
+      );
+
+    }
+
+
+    // ========================================================
+    // CREATE OUTPUT
+    // ========================================================
+
+    const output = {
+
+      lastUpdated:
+        new Date().toISOString(),
+
+      mapDate:
+        "09/09/2026",
+
+      sourceUrl:
+        latestLink[0],
+
+      imageUrl:
+        imageUrl,
+
+      imageSize: {
+
+        width:
+          image.bitmap.width,
+
+        height:
+          image.bitmap.height
+
+      },
+
+      regionCount:
+        Object.keys(regions).length,
+
+      regions:
+        regions,
+
+      details:
+        details
+
+    };
+
+
+    // ========================================================
+    // SAVE JSON
+    // ========================================================
+
+    fs.writeFileSync(
+
+      'fire_risk.json',
+
+      JSON.stringify(
+        output,
+        null,
+        2
+      ),
+
+      'utf8'
+
+    );
+
+
+    console.log("");
+    console.log(
+      "=========================================="
+    );
+
+    console.log(
+      `✅ Ολοκληρώθηκε: ` +
+      `${Object.keys(regions).length} ` +
+      `Περιφερειακές Ενότητες`
+    );
+
+    console.log(
+      "✅ fire_risk.json δημιουργήθηκε"
+    );
+
+    console.log(
+      "=========================================="
+    );
+
+  }
+
+  catch (error) {
+
+    console.error("");
+    console.error(
+      "❌ ERROR:"
+    );
+
+    console.error(
+      error.message
+    );
+
+  }
+
+  finally {
+
+    await browser.close();
+
+  }
+
+}
+
+
+// ============================================================
+// START
+// ============================================================
+
 scrape();
