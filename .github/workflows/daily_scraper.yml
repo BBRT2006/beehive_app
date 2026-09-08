@@ -24,7 +24,9 @@ jobs:
           node-version: 24
 
       - name: Install Dependencies
-        run: npm install puppeteer tesseract.js
+        run: |
+          npm install puppeteer tesseract.js
+          npx puppeteer browsers install chrome
 
       - name: Run Scraper
         run: node scraper.js
