@@ -9,13 +9,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:audioplayers/audioplayers.dart'; 
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
-import 'package:volume_controller/volume_controller.dart'; 
 
-// Global foreground player
-final AudioPlayer _foregroundPlayer = AudioPlayer();
+const MethodChannel _alarmChannel = MethodChannel('beehive.alarm');
 
 // 1. Αυτή η συνάρτηση τρέχει στο παρασκήνιο (όταν το app είναι εντελώς κλειστό)
 @pragma('vm:entry-point')
@@ -67,59 +65,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   history.insert(0, logEntry);
   await prefs.setStringList('alerts_history_log', history);
 
-  // Αν είναι όντως κλοπή, βάρα τη σειρήνα
-  if (isTheft) {
-    await prefs.setBool('stop_alarm', false);
-
-    // 1. Βάζουμε την ένταση στο 95% 
-    try { VolumeController.instance.setVolume(0.95); } catch (_) {}
-
-    // 2. Περιμένουμε 2 δευτερόλεπτα (αυξήθηκε) για να προλάβει να εδραιωθεί 
-    // το volume στο Android πριν ξεκινήσουμε να ακούμε τα κουμπιά.
-    await Future.delayed(const Duration(milliseconds: 2000));
-
-    // 3. Παίρνουμε τη νέα βάση έντασης (αφού έχει γίνει 95%)
-    double? baselineVol;
-    try { baselineVol = await VolumeController.instance.getVolume(); } catch (_) {}
-
-    // 4. Ξεκινάμε να ακούμε τα κουμπιά (Single-Click Kill Switch)
-    try {
-      VolumeController.instance.addListener((volume) async {
-        if (baselineVol != null && (volume - baselineVol!).abs() > 0.02) {
-          await prefs.setBool('stop_alarm', true); // Κλείνει με 1 κλικ!
-        }
-        baselineVol = volume; // ΠΑΝΤΑ ανανεώνουμε τη βάση για να μην κολλήσει
-      });
-    } catch (_) {}
-
-    // 5. Παίζει το custom MP3 ως ALARM (Παρακάμπτει την Αθόρυβη Λειτουργία)
-    final AudioPlayer bgPlayer = AudioPlayer();
-    try {
-      await bgPlayer.setAudioContext(AudioContext(
-        android: AudioContextAndroid(
-          usageType: AndroidUsageType.alarm, // ΑΛΛΑΞΕ ΣΕ ALARM
-          contentType: AndroidContentType.music,
-          audioFocus: AndroidAudioFocus.gainTransientExclusive,
-        ),
-      ));
-      await bgPlayer.setReleaseMode(ReleaseMode.loop);
-      await bgPlayer.play(AssetSource('audio/siren.mp3'), volume: 1.0);
-    } catch (e) {
-      debugPrint("AudioPlayer Background Error: $e");
-    }
-
-    // 6. Κρατάμε το background isolate ζωντανό
-    for (int i = 0; i < 300; i++) { 
-      await Future.delayed(const Duration(seconds: 1));
-      await prefs.reload(); 
-      if (prefs.getBool('stop_alarm') == true) {
-        break; // Ο χρήστης πάτησε το κουμπί έντασης!
-      }
-    }
-    
-    try { await bgPlayer.stop(); } catch(_) {}
-    try { VolumeController.instance.removeListener(); } catch (_) {}
-  }
+  // The native Firebase service owns alarm playback. Keeping a second Dart
+  // player here allowed the notification action to silence only one alarm.
 }
 
 Future<void> main() async {
@@ -1021,8 +968,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
   bool _blinkRed = false;
 
   bool isSyncing = false;
-  bool _isForcingVolume = false; // FLAG ADDED HERE
-
   double _visibleHours = 48.0;
   double _scrollOffset = 0.0;
   double _baseScaleVisibleHours = 48.0;
@@ -1054,9 +999,11 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
 
   // Silences the sound ONLY
   Future<void> _silenceSirenOnly() async {
-    try { await _foregroundPlayer.stop(); } catch(_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('stop_alarm', true);
+    try {
+      await _alarmChannel.invokeMethod('stopAlarm');
+    } catch (_) {}
   }
 
   // Silences sound AND dismisses the theft alert in state and cloud
@@ -1066,6 +1013,20 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
     try {
       await supabase.from('hives').update({'is_theft_alert_triggered': false}).eq('hive_id', hive.id);
     } catch (_) {}
+  }
+
+  void _showTheftAlertForMessage(String hiveId, String hiveName) {
+    if (!mounted) return;
+
+    final matchingHive = hives.cast<HiveData?>().firstWhere(
+      (hive) => hive != null &&
+          ((hiveId.isNotEmpty && hive.id == hiveId) ||
+              (hiveId.isEmpty && hive.name == hiveName)),
+      orElse: () => null,
+    );
+    if (matchingHive == null || matchingHive.isTheftAlertTriggered) return;
+
+    setState(() => matchingHive.isTheftAlertTriggered = true);
   }
 
   @override
@@ -1084,6 +1045,11 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       final hiveId = message.data['hive_id'] ?? '';
       final hiveName = message.data['hive_name'] ?? 'Κυψέλη';
       final isTheft = type == 'theft' || title.contains('ΚΛΟΠΗ') || title.contains('THEFT') || title.contains('ΣΥΝΑΓΕΡΜΟΣ');
+
+      if (isTheft) {
+        _showTheftAlertForMessage(hiveId, hiveName);
+        _loadUserHives();
+      }
 
       // --- DEDUPLICATION LOGIC FOREGROUND ---
       final prefs = await SharedPreferences.getInstance();
@@ -1117,28 +1083,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       await prefs.setStringList('alerts_history_log', history);
       setState(() {}); 
 
-      if (isTheft) {
-        _isForcingVolume = true; // Μπλοκάρουμε το Listener προσωρινά!
-        try { VolumeController.instance.setVolume(0.95); } catch (_) {}
-
-        // Περιμένουμε 2 δευτερόλεπτα και ξεμπλοκάρουμε το Listener
-        await Future.delayed(const Duration(milliseconds: 2000));
-        _isForcingVolume = false; 
-        
-        try {
-          await _foregroundPlayer.setAudioContext(AudioContext(
-            android: AudioContextAndroid(
-              usageType: AndroidUsageType.alarm, // ΑΛΛΑΞΕ ΣΕ ALARM
-              contentType: AndroidContentType.music,
-              audioFocus: AndroidAudioFocus.gainTransientExclusive,
-            ),
-          ));
-          await _foregroundPlayer.setReleaseMode(ReleaseMode.loop);
-          await _foregroundPlayer.play(AssetSource('audio/siren.mp3'), volume: 1.0);
-        } catch (e) {
-          debugPrint("AudioPlayer Foreground Error: $e");
-        }
-      }
       _loadUserHives(); 
     });
 
@@ -1146,28 +1090,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       debugPrint("🔔 App opened via notification!");
       _loadUserHives(); 
     });
-
-    // Hardware volume button listener (Single-Click Kill Switch)
-    try {
-      double? lastVol;
-      // ignore: body_might_complete_normally_catch_error
-      VolumeController.instance.getVolume().then((v) => lastVol = v).catchError((_) {});
-      VolumeController.instance.addListener((volume) {
-        // Αν η εφαρμογή αλλάζει την ένταση μόνη της, αγνόησέ το!
-        if (_isForcingVolume) {
-          lastVol = volume;
-          return;
-        }
-
-        if (lastVol != null && (volume - lastVol!).abs() > 0.02) {
-          final h = activeHive;
-          if (h != null && h.isTheftAlertTriggered) {
-            _silenceSirenOnly();
-          }
-        }
-        lastVol = volume;
-      });
-    } catch (_) {}
 
     WidgetsBinding.instance.addPostFrameCallback((_) { 
       _checkDisplayName(); 
@@ -1220,12 +1142,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
   void dispose() {
     _sirenTimer?.cancel();
     _globalTicker?.cancel();
-    try {
-      _foregroundPlayer.dispose();
-    } catch(_) {}
-    try {
-      VolumeController.instance.removeListener();
-    } catch (_) {}
     super.dispose();
   }
 
@@ -1844,21 +1760,21 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
   String _getFireCategoryTitle(int category) {
     if (widget.currentLanguage == 'el') {
       switch (category) { 
-        case 1: return 'Κατηγ. 1 (Χαμηλή)'; 
-        case 2: return 'Κατηγ. 2 (Μέση)'; 
-        case 3: return 'Κατηγ. 3 (Υψηλή)'; 
-        case 4: return 'Κατηγ. 4 (Πολύ Υψηλή)'; 
-        case 5: return 'Κατηγ. 5 (Συναγερμός)'; 
-        default: return 'Κατηγ. 3 (Υψηλή)'; 
+        case 1: return 'Κατηγ. 1';
+        case 2: return 'Κατηγ. 2';
+        case 3: return 'Κατηγ. 3';
+        case 4: return 'Κατηγ. 4';
+        case 5: return 'Κατηγ. 5';
+        default: return 'Κατηγ. 3';
       }
     } else {
       switch (category) { 
-        case 1: return 'Cat. 1 (Low)'; 
-        case 2: return 'Cat. 2 (Mod)'; 
-        case 3: return 'Cat. 3 (High)'; 
-        case 4: return 'Cat. 4 (Very High)'; 
-        case 5: return 'Cat. 5 (Extreme)'; 
-        default: return 'Cat. 3 (High)'; 
+        case 1: return 'Cat. 1';
+        case 2: return 'Cat. 2';
+        case 3: return 'Cat. 3';
+        case 4: return 'Cat. 4';
+        case 5: return 'Cat. 5';
+        default: return 'Cat. 3';
       }
     }
   }

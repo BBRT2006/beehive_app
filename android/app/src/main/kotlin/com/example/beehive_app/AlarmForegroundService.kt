@@ -34,6 +34,8 @@ class AlarmForegroundService : Service() {
 
         private const val CHANNEL_ID = "theft_alarm"
         private const val NOTIFICATION_ID = 4701
+        private const val PREFS_NAME = "FlutterSharedPreferences"
+        private const val STOP_ALARM_KEY = "flutter.stop_alarm"
 
         fun start(context: Context, hiveName: String?, hiveId: String?) {
             val intent = Intent(context, AlarmForegroundService::class.java).apply {
@@ -267,6 +269,10 @@ class AlarmForegroundService : Service() {
     }
 
     private fun stopAlarm() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(STOP_ALARM_KEY, true)
+            .apply()
         releaseAlarmResources()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
