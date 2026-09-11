@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="CleverScale"
@@ -37,6 +40,22 @@
                 <data android:scheme="io.supabase.beehive" android:host="login-callback" />
             </intent-filter>
         </activity>
+
+        <!-- Native FCM receiver: handles data-only high-priority theft alarms even when Flutter is closed. -->
+        <service
+            android:name=".BeehiveFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Native foreground service that owns the siren and Volume Up/Down kill switch. -->
+        <service
+            android:name=".AlarmForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <meta-data
             android:name="flutterEmbedding"

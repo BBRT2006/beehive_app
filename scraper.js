@@ -2,457 +2,473 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const Jimp = require('jimp');
 
+
 // ============================================================
-// FIRE RISK MAP - ΠΕΡΙΦΕΡΕΙΑΚΕΣ ΕΝΟΤΗΤΕΣ ΕΛΛΑΔΑΣ
+// CONFIG
 // ============================================================
 
-const sourceUrl =
+const ARCHIVE_URL =
   'https://civilprotection.gov.gr/arxeio-imerision-xartwn?page=0%2C0';
 
 
+// Official Regional Units GIS service
+const REGIONAL_UNITS_URL =
+  'https://geohub.necca.gov.gr/server/rest/services/' +
+  'ELBIOS-EXTERNAL_DATA/perifereiakes_enotites/' +
+  'FeatureServer/0/query';
+
+
+// Reference dimensions of the map used for the coordinates below.
+// The scraper automatically scales the coordinates if the image
+// dimensions change.
+
+const REFERENCE_WIDTH = 1384;
+const REFERENCE_HEIGHT = 1453;
+
+
 // ============================================================
-// 74 ΠΕΡΙΦΕΡΕΙΑΚΕΣ ΕΝΟΤΗΤΕΣ
+// ΠΕΡΙΦΕΡΕΙΑΚΕΣ ΕΝΟΤΗΤΕΣ
 // ============================================================
 //
-// Οι συντεταγμένες είναι X,Y σε pixels του χάρτη 1384x1453.
+// x / y = pixel position inside the official fire map.
 //
-// X -> από αριστερά προς δεξιά
-// Y -> από πάνω προς τα κάτω
+// These are reference points inside each PE.
+// They are automatically scaled to the actual image size.
 //
 // ============================================================
 
-const regionPixels = {
+const REGION_POINTS = {
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΑΝΑΤΟΛΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ & ΘΡΑΚΗΣ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΑΝΑΤΟΛΙΚΗ ΜΑΚΕΔΟΝΙΑ & ΘΡΑΚΗ
+  // ----------------------------------------------------------
 
-  "ΠΕ Έβρου": {
+  "Έβρου": {
     x: 790,
     y: 290
   },
 
-  "ΠΕ Ροδόπης": {
+  "Ροδόπης": {
     x: 725,
     y: 290
   },
 
-  "ΠΕ Ξάνθης": {
+  "Ξάνθης": {
     x: 675,
     y: 300
   },
 
-  "ΠΕ Καβάλας": {
+  "Καβάλας": {
     x: 625,
     y: 330
   },
 
-  "ΠΕ Δράμας": {
-    x: 610,
-    y: 290
-  },
-
-  "ΠΕ Θάσου": {
+  "Θάσου": {
     x: 680,
     y: 360
   },
 
+  "Δράμας": {
+    x: 610,
+    y: 290
+  },
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΚΕΝΤΡΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ
-  // ==========================================================
 
-  "ΠΕ Ημαθίας": {
+  // ----------------------------------------------------------
+  // ΚΕΝΤΡΙΚΗ ΜΑΚΕΔΟΝΙΑ
+  // ----------------------------------------------------------
+
+  "Ημαθίας": {
     x: 410,
     y: 420
   },
 
-  "ΠΕ Θεσσαλονίκης": {
+  "Θεσσαλονίκης": {
     x: 520,
     y: 360
   },
 
-  "ΠΕ Κιλκίς": {
+  "Κιλκίς": {
     x: 500,
     y: 340
   },
 
-  "ΠΕ Πέλλας": {
+  "Πέλλας": {
     x: 445,
     y: 380
   },
 
-  "ΠΕ Πιερίας": {
+  "Πιερίας": {
     x: 400,
     y: 475
   },
 
-  "ΠΕ Σερρών": {
+  "Σερρών": {
     x: 550,
     y: 320
   },
 
-  "ΠΕ Χαλκιδικής": {
+  "Χαλκιδικής": {
     x: 565,
     y: 405
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΔΥΤΙΚΗΣ ΜΑΚΕΔΟΝΙΑΣ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΔΥΤΙΚΗ ΜΑΚΕΔΟΝΙΑ
+  // ----------------------------------------------------------
 
-  "ΠΕ Γρεβενών": {
+  "Γρεβενών": {
     x: 360,
     y: 540
   },
 
-  "ΠΕ Καστοριάς": {
+  "Καστοριάς": {
     x: 250,
     y: 510
   },
 
-  "ΠΕ Κοζάνης": {
+  "Κοζάνης": {
     x: 350,
     y: 470
   },
 
-  "ΠΕ Φλώρινας": {
+  "Φλώρινας": {
     x: 280,
     y: 430
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΗΠΕΙΡΟΥ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΗΠΕΙΡΟΣ
+  // ----------------------------------------------------------
 
-  "ΠΕ Άρτας": {
+  "Άρτας": {
     x: 315,
     y: 680
   },
 
-  "ΠΕ Θεσπρωτίας": {
+  "Θεσπρωτίας": {
     x: 210,
     y: 560
   },
 
-  "ΠΕ Ιωαννίνων": {
+  "Ιωαννίνων": {
     x: 300,
     y: 600
   },
 
-  "ΠΕ Πρέβεζας": {
+  "Πρέβεζας": {
     x: 240,
     y: 650
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΘΕΣΣΑΛΙΑΣ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΘΕΣΣΑΛΙΑ
+  // ----------------------------------------------------------
 
-  "ΠΕ Καρδίτσας": {
+  "Καρδίτσας": {
     x: 410,
     y: 620
   },
 
-  "ΠΕ Λάρισας": {
+  "Λάρισας": {
     x: 450,
     y: 570
   },
 
-  "ΠΕ Μαγνησίας": {
+  "Μαγνησίας": {
     x: 505,
     y: 590
   },
 
-  "ΠΕ Σποράδων": {
+  "Σποράδων": {
     x: 590,
     y: 600
   },
 
-  "ΠΕ Τρικάλων": {
+  "Τρικάλων": {
     x: 350,
     y: 600
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΙΟΝΙΩΝ ΝΗΣΩΝ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΙΟΝΙΑ ΝΗΣΙΑ
+  // ----------------------------------------------------------
 
-  "ΠΕ Ζακύνθου": {
+  "Ζακύνθου": {
     x: 200,
     y: 820
   },
 
-  "ΠΕ Κέρκυρας": {
+  "Κέρκυρας": {
     x: 85,
     y: 530
   },
 
-  "ΠΕ Κεφαλληνίας": {
+  "Κεφαλληνίας": {
     x: 180,
     y: 720
   },
 
-  "ΠΕ Λευκάδας": {
+  "Λευκάδας": {
     x: 180,
     y: 660
   },
 
-  "ΠΕ Ιθάκης": {
+  "Ιθάκης": {
     x: 205,
     y: 735
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΔΥΤΙΚΗΣ ΕΛΛΑΔΑΣ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΔΥΤΙΚΗ ΕΛΛΑΔΑ
+  // ----------------------------------------------------------
 
-  "ΠΕ Αιτωλοακαρνανίας": {
+  "Αιτωλοακαρνανίας": {
     x: 290,
     y: 820
   },
 
-  "ΠΕ Αχαΐας": {
+  "Αχαΐας": {
     x: 300,
     y: 800
   },
 
-  "ΠΕ Ηλείας": {
+  "Ηλείας": {
     x: 290,
     y: 840
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΣΤΕΡΕΑΣ ΕΛΛΑΔΑΣ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΣΤΕΡΕΑ ΕΛΛΑΔΑ
+  // ----------------------------------------------------------
 
-  "ΠΕ Βοιωτίας": {
+  "Βοιωτίας": {
     x: 510,
     y: 730
   },
 
-  "ΠΕ Εύβοιας": {
+  "Εύβοιας": {
     x: 590,
     y: 780
   },
 
-  "ΠΕ Ευρυτανίας": {
+  "Ευρυτανίας": {
     x: 360,
     y: 720
   },
 
-  "ΠΕ Φθιώτιδας": {
+  "Φθιώτιδας": {
     x: 450,
     y: 700
   },
 
-  "ΠΕ Φωκίδας": {
+  "Φωκίδας": {
     x: 440,
     y: 740
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΑΤΤΙΚΗΣ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΑΤΤΙΚΗ
+  // ----------------------------------------------------------
 
-  "ΠΕ Κεντρικού Τομέα Αθηνών": {
+  "Κεντρικού Τομέα Αθηνών": {
     x: 575,
     y: 770
   },
 
-  "ΠΕ Βορείου Τομέα Αθηνών": {
+  "Βορείου Τομέα Αθηνών": {
     x: 570,
     y: 745
   },
 
-  "ΠΕ Νοτίου Τομέα Αθηνών": {
+  "Νοτίου Τομέα Αθηνών": {
     x: 580,
     y: 805
   },
 
-  "ΠΕ Δυτικού Τομέα Αθηνών": {
+  "Δυτικού Τομέα Αθηνών": {
     x: 550,
     y: 775
   },
 
-  "ΠΕ Ανατολικής Αττικής": {
+  "Ανατολικής Αττικής": {
     x: 625,
     y: 770
   },
 
-  "ΠΕ Δυτικής Αττικής": {
+  "Δυτικής Αττικής": {
     x: 500,
     y: 775
   },
 
-  "ΠΕ Πειραιώς": {
+  "Πειραιώς": {
     x: 550,
     y: 825
   },
 
-  "ΠΕ Νήσων": {
+  "Νήσων": {
     x: 600,
     y: 850
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΠΕΛΟΠΟΝΝΗΣΟΥ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΠΕΛΟΠΟΝΝΗΣΟΣ
+  // ----------------------------------------------------------
 
-  "ΠΕ Αργολίδας": {
+  "Αργολίδας": {
     x: 500,
     y: 830
   },
 
-  "ΠΕ Αρκαδίας": {
+  "Αρκαδίας": {
     x: 380,
     y: 840
   },
 
-  "ΠΕ Κορινθίας": {
+  "Κορινθίας": {
     x: 450,
     y: 790
   },
 
-  "ΠΕ Λακωνίας": {
+  "Λακωνίας": {
     x: 440,
     y: 950
   },
 
-  "ΠΕ Μεσσηνίας": {
+  "Μεσσηνίας": {
     x: 330,
     y: 940
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΒΟΡΕΙΟΥ ΑΙΓΑΙΟΥ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΒΟΡΕΙΟ ΑΙΓΑΙΟ
+  // ----------------------------------------------------------
 
-  "ΠΕ Λέσβου": {
+  "Λέσβου": {
     x: 870,
     y: 600
   },
 
-  "ΠΕ Λήμνου": {
+  "Λήμνου": {
     x: 750,
     y: 480
   },
 
-  "ΠΕ Χίου": {
+  "Χίου": {
     x: 870,
     y: 720
   },
 
-  "ΠΕ Σάμου": {
+  "Σάμου": {
     x: 940,
     y: 840
   },
 
-  "ΠΕ Ικαρίας": {
+  "Ικαρίας": {
     x: 780,
     y: 860
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΝΟΤΙΟΥ ΑΙΓΑΙΟΥ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΝΟΤΙΟ ΑΙΓΑΙΟ
+  // ----------------------------------------------------------
 
-  "ΠΕ Άνδρου": {
+  "Άνδρου": {
     x: 730,
     y: 720
   },
 
-  "ΠΕ Θήρας": {
+  "Θήρας": {
     x: 780,
     y: 950
   },
 
-  "ΠΕ Καλύμνου": {
+  "Καλύμνου": {
     x: 900,
     y: 900
   },
 
-  "ΠΕ Καρπάθου": {
+  "Καρπάθου": {
     x: 990,
     y: 1010
   },
 
-  "ΠΕ Κέας - Κύθνου": {
+  "Κέας - Κύθνου": {
     x: 700,
     y: 850
   },
 
-  "ΠΕ Κω": {
+  "Κω": {
     x: 900,
     y: 950
   },
 
-  "ΠΕ Μήλου": {
+  "Μήλου": {
     x: 690,
     y: 880
   },
 
-  "ΠΕ Μυκόνου": {
+  "Μυκόνου": {
     x: 800,
     y: 850
   },
 
-  "ΠΕ Νάξου": {
+  "Νάξου": {
     x: 800,
     y: 900
   },
 
-  "ΠΕ Πάρου": {
+  "Πάρου": {
     x: 760,
     y: 880
   },
 
-  "ΠΕ Ρόδου": {
+  "Ρόδου": {
     x: 1025,
     y: 975
   },
 
-  "ΠΕ Σύρου": {
+  "Σύρου": {
     x: 745,
     y: 825
   },
 
-  "ΠΕ Τήνου": {
+  "Τήνου": {
     x: 760,
     y: 780
   },
 
 
-  // ==========================================================
-  // ΠΕΡΙΦΕΡΕΙΑ ΚΡΗΤΗΣ
-  // ==========================================================
+  // ----------------------------------------------------------
+  // ΚΡΗΤΗ
+  // ----------------------------------------------------------
 
-  "ΠΕ Ηρακλείου": {
+  "Ηρακλείου": {
     x: 735,
     y: 1250
   },
 
-  "ΠΕ Λασιθίου": {
+  "Λασιθίου": {
     x: 820,
     y: 1250
   },
 
-  "ΠΕ Ρεθύμνης": {
+  "Ρεθύμνης": {
     x: 670,
     y: 1230
   },
 
-  "ΠΕ Χανίων": {
+  "Χανίων": {
     x: 600,
     y: 1210
   }
@@ -461,20 +477,35 @@ const regionPixels = {
 
 
 // ============================================================
-// RISK LEVEL
+// NORMALIZE GREEK NAMES
 // ============================================================
-//
-// 1 = Χαμηλή
-// 2 = Μέση
-// 3 = Υψηλή
-// 4 = Πολύ Υψηλή
-// 5 = Κατάσταση Συναγερμού
-//
+
+function normalizeGreek(text) {
+
+  if (!text) {
+    return '';
+  }
+
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ΠΕΡΙΦΕΡΕΙΑΚΗ ΕΝΟΤΗΤΑ/gi, '')
+    .replace(/ΠΕ/gi, '')
+    .replace(/[()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+}
+
+
+// ============================================================
+// RISK COLOR
 // ============================================================
 
 function getRiskLevel(r, g, b) {
 
-  // ΚΟΚΚΙΝΟ
+  // RED = 5
   if (
     r > 180 &&
     g < 100 &&
@@ -483,35 +514,35 @@ function getRiskLevel(r, g, b) {
     return 5;
   }
 
-  // ΠΟΡΤΟΚΑΛΙ
+  // ORANGE = 4
   if (
     r > 180 &&
     g >= 80 &&
     g < 190 &&
-    b < 120
+    b < 130
   ) {
     return 4;
   }
 
-  // ΚΙΤΡΙΝΟ
+  // YELLOW = 3
   if (
     r > 180 &&
-    g > 180 &&
-    b < 160
+    g > 170 &&
+    b < 170
   ) {
     return 3;
   }
 
-  // ΜΠΛΕ
+  // BLUE = 2
   if (
     b > 140 &&
-    r < 180 &&
-    g < 210
+    r < 190 &&
+    g < 220
   ) {
     return 2;
   }
 
-  // ΠΡΑΣΙΝΟ
+  // GREEN = 1
   if (
     g > 130 &&
     r < 180 &&
@@ -520,7 +551,7 @@ function getRiskLevel(r, g, b) {
     return 1;
   }
 
-  // DEFAULT
+  // Default
   return 2;
 }
 
@@ -534,35 +565,36 @@ function getRiskName(level) {
   switch (level) {
 
     case 1:
-      return "Χαμηλή";
+      return 'Χαμηλή';
 
     case 2:
-      return "Μέση";
+      return 'Μέση';
 
     case 3:
-      return "Υψηλή";
+      return 'Υψηλή';
 
     case 4:
-      return "Πολύ Υψηλή";
+      return 'Πολύ Υψηλή';
 
     case 5:
-      return "Κατάσταση Συναγερμού";
+      return 'Κατάσταση Συναγερμού';
 
     default:
-      return "Άγνωστο";
+      return 'Άγνωστο';
   }
+
 }
 
 
 // ============================================================
-// ANALYZE AREA AROUND COORDINATE
+// AREA SAMPLING
 // ============================================================
 
 function getRiskFromArea(
   image,
   centerX,
   centerY,
-  radius = 4
+  radius = 5
 ) {
 
   const counts = {
@@ -572,6 +604,7 @@ function getRiskFromArea(
     4: 0,
     5: 0
   };
+
 
   for (
     let y = centerY - radius;
@@ -594,11 +627,14 @@ function getRiskFromArea(
         continue;
       }
 
-      const hex =
+
+      const color =
         image.getPixelColor(x, y);
 
+
       const rgba =
-        Jimp.intToRGBA(hex);
+        Jimp.intToRGBA(color);
+
 
       const risk =
         getRiskLevel(
@@ -607,16 +643,15 @@ function getRiskFromArea(
           rgba.b
         );
 
+
       counts[risk]++;
     }
   }
 
 
-  // Βρίσκουμε ποιο χρώμα εμφανίζεται
-  // περισσότερο στην περιοχή.
-
   let bestRisk = 2;
   let bestCount = -1;
+
 
   for (
     const [risk, count]
@@ -629,12 +664,227 @@ function getRiskFromArea(
       bestRisk = Number(risk);
 
     }
+
   }
+
 
   return {
     risk: bestRisk,
     counts: counts
   };
+
+}
+
+
+// ============================================================
+// GET OFFICIAL REGIONAL UNITS
+// ============================================================
+
+async function getRegionalUnits() {
+
+  const url =
+    REGION_UNITS_QUERY_URL();
+
+
+  console.log(
+    'Λήψη επίσημων Περιφερειακών Ενοτήτων...'
+  );
+
+
+  const response =
+    await fetch(url);
+
+
+  if (!response.ok) {
+
+    throw new Error(
+      `GIS request failed: ${response.status}`
+    );
+
+  }
+
+
+  const data =
+    await response.json();
+
+
+  if (!data.features) {
+
+    throw new Error(
+      'Το GIS service δεν επέστρεψε features.'
+    );
+
+  }
+
+
+  return data.features;
+
+}
+
+
+function REGION_UNITS_QUERY_URL() {
+
+  const params =
+    new URLSearchParams({
+
+      where: '1=1',
+
+      outFields:
+        'CODE,NAME_GR,NAME_ENG',
+
+      returnGeometry:
+        'false',
+
+      f:
+        'geojson'
+
+    });
+
+
+  return (
+    `${REGIONAL_UNITS_URL}?${params.toString()}`
+  );
+
+}
+
+
+// ============================================================
+// FIND OFFICIAL PE
+// ============================================================
+
+function findOfficialRegion(
+  regionName,
+  features
+) {
+
+  const wanted =
+    normalizeGreek(regionName);
+
+
+  let best = null;
+
+
+  for (
+    const feature of features
+  ) {
+
+    const props =
+      feature.properties || {};
+
+
+    const officialName =
+      normalizeGreek(
+        props.NAME_GR
+      );
+
+
+    if (
+      officialName === wanted
+    ) {
+
+      return {
+
+        code:
+          props.CODE,
+
+        nameGr:
+          props.NAME_GR,
+
+        nameEn:
+          props.NAME_ENG
+
+      };
+
+    }
+
+
+    // Partial fallback
+    if (
+      officialName.includes(wanted) ||
+      wanted.includes(officialName)
+    ) {
+
+      best = {
+
+        code:
+          props.CODE,
+
+        nameGr:
+          props.NAME_GR,
+
+        nameEn:
+          props.NAME_ENG
+
+      };
+
+    }
+
+  }
+
+
+  return best;
+
+}
+
+
+// ============================================================
+// EXTRACT MAP DATE
+// ============================================================
+
+function extractMapDate(text) {
+
+  if (!text) {
+    return null;
+  }
+
+
+  // Look for:
+  //
+  // 10/09/2026
+  // 09/09/2026
+  //
+  // The first date in the title is the date
+  // the map applies to.
+
+  const matches =
+    text.match(
+      /\b(\d{1,2})[\/.-](\d{1,2})[\/.-](20\d{2})\b/g
+    );
+
+
+  if (
+    !matches ||
+    matches.length === 0
+  ) {
+
+    return null;
+
+  }
+
+
+  const parts =
+    matches[0].match(
+      /(\d{1,2})[\/.-](\d{1,2})[\/.-](20\d{2})/
+    );
+
+
+  if (!parts) {
+    return null;
+  }
+
+
+  const day =
+    parts[1].padStart(2, '0');
+
+  const month =
+    parts[2].padStart(2, '0');
+
+  const year =
+    parts[3];
+
+
+  return `${year}-${month}-${day}`;
+
 }
 
 
@@ -644,11 +894,11 @@ function getRiskFromArea(
 
 async function scrape() {
 
-  console.log("");
-  console.log("==========================================");
-  console.log("🔥 FIRE RISK MAP SCRAPER");
-  console.log("==========================================");
-  console.log("");
+  console.log('');
+  console.log('==============================================');
+  console.log('🔥 FIRE RISK SCRAPER');
+  console.log('==============================================');
+
 
   const browser =
     await puppeteer.launch({
@@ -663,29 +913,30 @@ async function scrape() {
     });
 
 
-  const page =
-    await browser.newPage();
-
-
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-    'Chrome/122.0.0.0 Safari/537.36'
-  );
-
-
   try {
+
+    const page =
+      await browser.newPage();
+
+
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+      'Chrome/122.0.0.0 Safari/537.36'
+    );
+
 
     // ========================================================
     // OPEN ARCHIVE
     // ========================================================
 
     console.log(
-      "Άνοιγμα Civil Protection..."
+      'Άνοιγμα αρχείου χαρτών...'
     );
 
+
     await page.goto(
-      sourceUrl,
+      ARCHIVE_URL,
       {
         waitUntil: 'domcontentloaded',
         timeout: 90000
@@ -694,10 +945,10 @@ async function scrape() {
 
 
     // ========================================================
-    // FIND LATEST MAP
+    // FIND LATEST MAP LINK
     // ========================================================
 
-    const latestLink =
+    const latest =
       await page.evaluate(() => {
 
         const links =
@@ -706,62 +957,83 @@ async function scrape() {
           );
 
 
-        const mapLinks =
+        const result =
           links
 
-            .filter(a => {
+            .map(a => ({
+              text:
+                (a.innerText || '').trim(),
 
-              const text =
-                (a.innerText || '')
-                .toLowerCase();
+              href:
+                a.href
 
-              const href =
-                (a.href || '')
-                .toLowerCase();
+            }))
 
-              return (
-                text.includes('χάρτ') ||
-                href.includes('xart')
-              );
-
-            })
-
-            .map(a => a.href);
+            .filter(item =>
+              item.text
+                .toLowerCase()
+                .includes(
+                  'ημερήσιος χάρτης πρόβλεψης'
+                )
+            );
 
 
-        return [
-          ...new Set(mapLinks)
-        ].slice(0, 1);
+        return result.length > 0
+          ? result[0]
+          : null;
 
       });
 
 
-    if (
-      latestLink.length === 0
-    ) {
+    if (!latest) {
 
       throw new Error(
-        "Δεν βρέθηκε ο τελευταίος χάρτης."
+        'Δεν βρέθηκε ο τελευταίος χάρτης.'
+      );
+
+    }
+
+
+    console.log('');
+    console.log(
+      `Χάρτης: ${latest.text}`
+    );
+
+    console.log(
+      `URL: ${latest.href}`
+    );
+
+
+    // ========================================================
+    // MAP DATE
+    // ========================================================
+
+    const mapDate =
+      extractMapDate(
+        latest.text
+      );
+
+
+    if (!mapDate) {
+
+      throw new Error(
+        'Δεν μπόρεσα να βρω την ημερομηνία του χάρτη.'
       );
 
     }
 
 
     console.log(
-      "Latest map:"
-    );
-
-    console.log(
-      latestLink[0]
+      `Ημερομηνία ισχύος: ${mapDate}`
     );
 
 
     // ========================================================
-    // OPEN MAP
+    // OPEN MAP PAGE
     // ========================================================
 
     await page.goto(
-      latestLink[0],
+      latest.href,
       {
         waitUntil: 'domcontentloaded',
         timeout: 90000
@@ -776,24 +1048,34 @@ async function scrape() {
     const imageUrl =
       await page.evaluate(() => {
 
+        const links =
+          Array.from(
+            document.querySelectorAll('a')
+          );
+
+
+        const jpg =
+          links.find(a =>
+            /\.(jpg|jpeg|png)$/i.test(
+              a.href
+            )
+          );
+
+
+        if (jpg) {
+          return jpg.href;
+        }
+
+
         const img =
           document.querySelector(
-            'a[href$=".jpg"], ' +
-            'a[href$=".jpeg"], ' +
-            'a[href$=".png"], ' +
             '.field--type-image img'
           );
 
 
-        if (!img) {
-          return null;
-        }
-
-
-        return (
-          img.href ||
-          img.src
-        );
+        return img
+          ? img.src
+          : null;
 
       });
 
@@ -801,18 +1083,14 @@ async function scrape() {
     if (!imageUrl) {
 
       throw new Error(
-        "Δεν βρέθηκε εικόνα χάρτη."
+        'Δεν βρέθηκε η εικόνα του χάρτη.'
       );
 
     }
 
 
     console.log(
-      "Image:"
-    );
-
-    console.log(
-      imageUrl
+      `Image: ${imageUrl}`
     );
 
 
@@ -820,32 +1098,27 @@ async function scrape() {
     // DOWNLOAD IMAGE
     // ========================================================
 
-    const response =
-      await page.goto(
-        imageUrl,
-        {
-          waitUntil: 'networkidle0',
-          timeout: 90000
-        }
+    const imageResponse =
+      await fetch(
+        imageUrl
       );
 
 
-    if (!response) {
+    if (!imageResponse.ok) {
 
       throw new Error(
-        "Αποτυχία λήψης εικόνας."
+        `Image download failed: ` +
+        `${imageResponse.status}`
       );
 
     }
 
 
     const imageBuffer =
-      await response.buffer();
+      Buffer.from(
+        await imageResponse.arrayBuffer()
+      );
 
-
-    // ========================================================
-    // LOAD IMAGE
-    // ========================================================
 
     const image =
       await Jimp.read(
@@ -853,7 +1126,6 @@ async function scrape() {
       );
 
 
-    console.log("");
     console.log(
       `Image size: ` +
       `${image.bitmap.width} x ` +
@@ -862,127 +1134,147 @@ async function scrape() {
 
 
     // ========================================================
-    // CHECK IMAGE DIMENSIONS
+    // SCALE COORDINATES
     // ========================================================
 
-    const EXPECTED_WIDTH = 1384;
-    const EXPECTED_HEIGHT = 1453;
+    const scaleX =
+      image.bitmap.width /
+      REFERENCE_WIDTH;
 
 
-    if (
-      image.bitmap.width !== EXPECTED_WIDTH ||
-      image.bitmap.height !== EXPECTED_HEIGHT
-    ) {
-
-      throw new Error(
-        `Οι διαστάσεις του χάρτη άλλαξαν! ` +
-        `Βρέθηκε ${image.bitmap.width}x` +
-        `${image.bitmap.height}, ` +
-        `ενώ περιμέναμε ${EXPECTED_WIDTH}x` +
-        `${EXPECTED_HEIGHT}.`
-      );
-
-    }
+    const scaleY =
+      image.bitmap.height /
+      REFERENCE_HEIGHT;
 
 
     // ========================================================
-    // ANALYZE ALL REGIONS
+    // GET OFFICIAL PE DATA
     // ========================================================
 
-    console.log("");
-    console.log(
-      "=========================================="
-    );
+    const officialRegions =
+      await getRegionalUnits();
+
 
     console.log(
-      "ΑΝΑΛΥΣΗ 74 ΠΕΡΙΦΕΡΕΙΑΚΩΝ ΕΝΟΤΗΤΩΝ"
-    );
-
-    console.log(
-      "=========================================="
+      `Official GIS regions: ` +
+      `${officialRegions.length}`
     );
 
 
-    const regions = {};
-    const details = {};
+    // ========================================================
+    // ANALYZE REGIONS
+    // ========================================================
+
+    const regions = [];
 
 
     for (
-      const [region, coords]
-      of Object.entries(regionPixels)
+      const [
+        regionName,
+        referenceCoords
+      ]
+      of Object.entries(REGION_POINTS)
     ) {
 
-      // ------------------------------------------------------
-      // CHECK COORDINATES
-      // ------------------------------------------------------
-
-      if (
-        coords.x < 0 ||
-        coords.y < 0 ||
-        coords.x >= image.bitmap.width ||
-        coords.y >= image.bitmap.height
-      ) {
-
-        console.log(
-          `❌ ${region}: ` +
-          `coordinates outside image`
+      const official =
+        findOfficialRegion(
+          regionName,
+          officialRegions
         );
 
-        regions[region] = 2;
+
+      if (!official) {
+
+        console.log(
+          `⚠️ Δεν βρέθηκε GIS match: ` +
+          `${regionName}`
+        );
 
         continue;
+
       }
 
 
-      // ------------------------------------------------------
-      // READ AREA
-      // ------------------------------------------------------
+      const x =
+        Math.round(
+          referenceCoords.x *
+          scaleX
+        );
+
+
+      const y =
+        Math.round(
+          referenceCoords.y *
+          scaleY
+        );
+
 
       const result =
         getRiskFromArea(
           image,
-          coords.x,
-          coords.y,
-          4
+          x,
+          y,
+          5
         );
 
 
-      const risk =
-        result.risk;
+      regions.push({
 
+        code:
+          official.code,
 
-      regions[region] =
-        risk;
+        nameGr:
+          official.nameGr,
 
+        nameEn:
+          official.nameEn,
 
-      details[region] = {
-
-        x: coords.x,
-
-        y: coords.y,
-
-        risk: risk,
+        risk:
+          result.risk,
 
         riskName:
-          getRiskName(risk),
+          getRiskName(
+            result.risk
+          ),
+
+        pixel: {
+
+          x: x,
+
+          y: y
+
+        },
 
         pixelCounts:
           result.counts
 
-      };
+      });
 
 
       console.log(
-        `${region}: ` +
-        `${risk} - ` +
-        `${getRiskName(risk)}`
+        `${official.nameGr}: ` +
+        `${result.risk} - ` +
+        `${getRiskName(result.risk)}`
       );
 
     }
 
 
     // ========================================================
-    // CREATE OUTPUT
+    // SORT BY CODE
+    // ========================================================
+
+    regions.sort(
+      (a, b) =>
+        String(a.code)
+          .localeCompare(
+            String(b.code)
+          )
+    );
+
+
+    // ========================================================
+    // OUTPUT
     // ========================================================
 
     const output = {
@@ -991,10 +1283,10 @@ async function scrape() {
         new Date().toISOString(),
 
       mapDate:
-        "09/09/2026",
+        mapDate,
 
       sourceUrl:
-        latestLink[0],
+        latest.href,
 
       imageUrl:
         imageUrl,
@@ -1010,62 +1302,126 @@ async function scrape() {
       },
 
       regionCount:
-        Object.keys(regions).length,
+        regions.length,
 
       regions:
-        regions,
-
-      details:
-        details
+        regions
 
     };
 
 
     // ========================================================
-    // SAVE JSON
+    // SAVE CURRENT
     // ========================================================
 
     fs.writeFileSync(
-
       'fire_risk.json',
-
       JSON.stringify(
         output,
         null,
         2
       ),
-
       'utf8'
-
     );
 
 
-    console.log("");
+    console.log('');
     console.log(
-      "=========================================="
+      '✅ fire_risk.json ενημερώθηκε.'
+    );
+
+
+    // ========================================================
+    // SAVE HISTORY
+    // ========================================================
+
+    const historyDir =
+      './history';
+
+
+    if (
+      !fs.existsSync(
+        historyDir
+      )
+    ) {
+
+      fs.mkdirSync(
+        historyDir,
+        {
+          recursive: true
+        }
+      );
+
+    }
+
+
+    const historyFile =
+      `${historyDir}/${mapDate}.json`;
+
+
+    if (
+      fs.existsSync(
+        historyFile
+      )
+    ) {
+
+      console.log(
+        `ℹ️ Υπάρχει ήδη: ${historyFile}`
+      );
+
+      console.log(
+        'Το παλιό ιστορικό ΔΕΝ αντικαταστάθηκε.'
+      );
+
+    } else {
+
+      fs.writeFileSync(
+        historyFile,
+        JSON.stringify(
+          output,
+          null,
+          2
+        ),
+        'utf8'
+      );
+
+
+      console.log(
+        `📚 Ιστορικό αποθηκεύτηκε: ` +
+        `${historyFile}`
+      );
+
+    }
+
+
+    // ========================================================
+    // SUMMARY
+    // ========================================================
+
+    console.log('');
+    console.log(
+      '=============================================='
     );
 
     console.log(
-      `✅ Ολοκληρώθηκε: ` +
-      `${Object.keys(regions).length} ` +
-      `Περιφερειακές Ενότητες`
+      `✅ ${regions.length} Περιφερειακές Ενότητες`
     );
 
     console.log(
-      "✅ fire_risk.json δημιουργήθηκε"
+      `📅 ${mapDate}`
     );
 
     console.log(
-      "=========================================="
+      '=============================================='
     );
 
   }
 
   catch (error) {
 
-    console.error("");
+    console.error('');
     console.error(
-      "❌ ERROR:"
+      '❌ ERROR:'
     );
 
     console.error(
@@ -1082,9 +1438,5 @@ async function scrape() {
 
 }
 
-
-// ============================================================
-// START
-// ============================================================
 
 scrape();
