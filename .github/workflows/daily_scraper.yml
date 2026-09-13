@@ -25,8 +25,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          npm install puppeteer tesseract.js
-          chmod +x ./node_modules/.bin/puppeteer
+          npm ci
           npx puppeteer browsers install chrome 
 
       - name: Run Scraper
@@ -37,4 +36,4 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add fire_risk.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update fire risk data" && git push)
+          git diff --cached --quiet || (git commit -m "Auto-update fire risk data" && git push)

@@ -2466,10 +2466,27 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
 
     // DRAWER NOTIFICATION HISTORY LIST
     List<Widget> drawerAlertWidgets = [];
+    final loggedAlerts = _prefs?.getStringList('alerts_history_log') ?? [];
+
+    bool hasRecentLoggedTheft(String hiveId, String hiveName) {
+      for (final log in loggedAlerts) {
+        try {
+          final item = jsonDecode(log) as Map<String, dynamic>;
+          if (item['isTheft'] != true) continue;
+          final sameHive = (hiveId.isNotEmpty && item['hive_id'] == hiveId) ||
+              (hiveId.isEmpty && item['hive_name'] == hiveName);
+          final loggedAt = DateTime.tryParse(item['date']?.toString() ?? '');
+          if (sameHive && loggedAt != null && DateTime.now().difference(loggedAt).inMinutes < 5) {
+            return true;
+          }
+        } catch (_) {}
+      }
+      return false;
+    }
 
     // 1. Add Active Theft Alerts
     for (var h in hives) {
-      if (h.isTheftAlertTriggered) {
+      if (h.isTheftAlertTriggered && !hasRecentLoggedTheft(h.id, h.name)) {
         drawerAlertWidgets.add(
           ListTile(
             dense: true,
@@ -2494,7 +2511,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
     }
 
     // 2. Add Saved FCM/Theft Alert Logs
-    final loggedAlerts = _prefs?.getStringList('alerts_history_log') ?? [];
     for (var log in loggedAlerts) {
       try {
         final Map<String, dynamic> item = jsonDecode(log);
@@ -3104,51 +3120,51 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                 const SizedBox(height: 12),
 
                 // Hero Weight Card
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [BoxShadow(color: const Color(0xFFD97706).withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 6))],
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(t['total_weight']!, style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
-                          Row(
-                            children: [
-                              Icon(weightDiff24h >= 0 ? Icons.arrow_upward : Icons.arrow_downward, color: weightDiff24h >= 0 ? Colors.greenAccent : Colors.redAccent, size: 18),
-                              const SizedBox(width: 4),
-                              Text('${weightDiff24h > 0 ? '+' : ''}${weightDiff24h.toStringAsFixed(1)} kg (24h)', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(hive.currentWeight.toStringAsFixed(2), style: const TextStyle(fontSize: 46, fontWeight: FontWeight.w900, color: Colors.white)),
-                          const SizedBox(width: 6),
-                          const Text('kg', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white70)),
-                        ],
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: GestureDetector(
-                          onTap: () => _showOverallHistoryDialog(hive),
+                GestureDetector(
+                  onTap: () => _showOverallHistoryDialog(hive),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [BoxShadow(color: const Color(0xFFD97706).withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 6))],
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(t['total_weight']!, style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+                            Row(
+                              children: [
+                                Icon(weightDiff24h >= 0 ? Icons.arrow_upward : Icons.arrow_downward, color: weightDiff24h >= 0 ? Colors.greenAccent : Colors.redAccent, size: 18),
+                                const SizedBox(width: 4),
+                                Text('${weightDiff24h > 0 ? '+' : ''}${weightDiff24h.toStringAsFixed(1)} kg (24h)', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(hive.currentWeight.toStringAsFixed(2), style: const TextStyle(fontSize: 46, fontWeight: FontWeight.w900, color: Colors.white)),
+                            const SizedBox(width: 6),
+                            const Text('kg', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white70)),
+                          ],
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(12)),
                             child: Text('${netGain >= 0 ? '+' : ''}🍯 ${netGain.toStringAsFixed(1)} kg ${t['overall']}', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -3388,7 +3404,14 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                               child: Stack(
                                 children: [
                                   if (isRainRisk)
-                                    const Positioned(top: 0, right: 2, child: Icon(Icons.beach_access, size: 16, color: Color(0xFF2563EB))),
+                                    const Positioned(
+                                      top: 0,
+                                      right: 2,
+                                      child: RotatedBox(
+                                        quarterTurns: 1,
+                                        child: Icon(Icons.beach_access, size: 16, color: Color(0xFF2563EB)),
+                                      ),
+                                    ),
                                   Column(
                                     children: [
                                       Text(day.dayName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),

@@ -36,6 +36,8 @@ class AlarmForegroundService : Service() {
         private const val NOTIFICATION_ID = 4701
         private const val PREFS_NAME = "FlutterSharedPreferences"
         private const val STOP_ALARM_KEY = "flutter.stop_alarm"
+        private const val SILENCE_COOLDOWN_MS = 10_000L
+        private const val SILENCE_COOLDOWN_PREFIX = "alarm_silenced_until_"
 
         fun start(context: Context, hiveName: String?, hiveId: String?) {
             val intent = Intent(context, AlarmForegroundService::class.java).apply {
@@ -52,7 +54,10 @@ class AlarmForegroundService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, AlarmForegroundService::class.java))
+            val intent = Intent(context, AlarmForegroundService::class.java).apply {
+                action = ACTION_STOP
+            }
+            context.startService(intent)
         }
     }
 
@@ -62,6 +67,7 @@ class AlarmForegroundService : Service() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private var previousAlarmVolume = -1
     private var alarmVolumeWasChanged = false
+    private var currentHiveId = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -77,13 +83,20 @@ class AlarmForegroundService : Service() {
             }
             ACTION_START, null -> {
                 val hiveName = intent?.getStringExtra(EXTRA_HIVE_NAME) ?: "Κυψέλη"
-                startAlarm(hiveName)
+                val hiveId = intent?.getStringExtra(EXTRA_HIVE_ID) ?: ""
+                startAlarm(hiveName, hiveId)
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun startAlarm(hiveName: String) {
+    private fun startAlarm(hiveName: String, hiveId: String) {
+        if (isRecentlySilenced(hiveId)) {
+            stopSelf()
+            return
+        }
+
+        currentHiveId = hiveId
         // If an alarm is already running, do not create a second player/session.
         if (mediaPlayer?.isPlaying == true) return
 
@@ -268,11 +281,23 @@ class AlarmForegroundService : Service() {
         restoreAlarmStreamVolume()
     }
 
+    private fun isRecentlySilenced(hiveId: String): Boolean {
+        if (hiveId.isEmpty()) return false
+        val silencedUntil = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong(SILENCE_COOLDOWN_PREFIX + hiveId, 0L)
+        return silencedUntil > System.currentTimeMillis()
+    }
+
     private fun stopAlarm() {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(STOP_ALARM_KEY, true)
-            .apply()
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
+            putBoolean(STOP_ALARM_KEY, true)
+            if (currentHiveId.isNotEmpty()) {
+                putLong(
+                    SILENCE_COOLDOWN_PREFIX + currentHiveId,
+                    System.currentTimeMillis() + SILENCE_COOLDOWN_MS
+                )
+            }
+        }.apply()
         releaseAlarmResources()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
