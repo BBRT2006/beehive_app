@@ -62,6 +62,15 @@ function loadForestServicePoints() {
 }
 
 function extractMapDate(text) {
+  const filenameMatch =
+    String(text || '').match(/(?:^|\/)(\d{2})(\d{2})(\d{2})(?:\.jpg|\.jpeg)?$/i);
+  if (filenameMatch) {
+    const year = `20${filenameMatch[1]}`;
+    const month = filenameMatch[2].padStart(2, '0');
+    const day = filenameMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   const match = String(text || '').match(
     /\b(\d{1,2})[\/.-](\d{1,2})[\/.-](20\d{2})\b/
   );
@@ -70,6 +79,36 @@ function extractMapDate(text) {
   const day = match[1].padStart(2, '0');
   const month = match[2].padStart(2, '0');
   return `${match[3]}-${month}-${day}`;
+}
+
+async function findDirectMapImage() {
+  const today = new Date();
+
+  for (let offset = 0; offset <= 7; offset++) {
+    const date = new Date(today);
+    date.setUTCDate(today.getUTCDate() - offset);
+
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const shortYear = String(year).slice(-2);
+    const filename = `${shortYear}${month}${day}.jpg`;
+    const url =
+      `https://civilprotection.gov.gr/sites/default/files/` +
+      `${year}-${month}/${filename}`;
+
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return {
+          text: filename,
+          href: url
+        };
+      }
+    } catch (_) {}
+  }
+
+  return null;
 }
 
 function getRiskFromArea(image, centerX, centerY, radius = 5) {
@@ -183,6 +222,10 @@ async function scrape() {
           };
         }, mapCandidate);
       }
+    }
+
+    if (!mapCandidate) {
+      mapCandidate = await findDirectMapImage();
     }
 
     if (!mapCandidate) {
