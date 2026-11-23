@@ -1398,81 +1398,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       }
     } catch (_) {}
 
-    const layer =
-        'geodata.gov.gr:3fbc1aea-3bdd-4bbc-811c-e11758213a8d';
-    const server =
-        'https://geodata.gov.gr/geoserver/ows';
-    const geometryFields = [
-      'geom',
-      'the_geom',
-      'geometry',
-      'shape',
-      'wkb_geometry',
-    ];
-
-    for (final geometryField in geometryFields) {
-      final uri = Uri.parse(
-        '$server?service=WFS'
-        '&version=2.0.0'
-        '&request=GetFeature'
-        '&typeNames=$layer'
-        '&outputFormat=application/json'
-        '&count=1'
-        '&cql_filter='
-        'INTERSECTS($geometryField,'
-        'POINT($longitude $latitude))',
-      );
-
-      try {
-        final response =
-            await http.get(uri).timeout(const Duration(seconds: 8));
-        if (response.statusCode != 200) continue;
-
-        final data = jsonDecode(response.body);
-        final features = data['features'] as List<dynamic>?;
-        if (features == null || features.isEmpty) continue;
-
-        final properties =
-            features.first['properties'] as Map<String, dynamic>?;
-        if (properties == null) continue;
-
-        final priorityKeys = [
-          'dasiki_ypiresia',
-          'forest_service',
-          'name',
-          'name_gr',
-          'onoma',
-          'dasarxeio',
-          'dasikes',
-        ];
-
-        for (final key in priorityKeys) {
-          for (final entry in properties.entries) {
-            final normalizedKey = entry.key
-                .toLowerCase()
-                .replaceAll(RegExp(r'[^a-z0-9_\u0370-\u03ff]'), '');
-            if (normalizedKey == key ||
-                normalizedKey.contains(key) ||
-                key.contains(normalizedKey)) {
-              final value = entry.value?.toString().trim();
-              if (value != null && value.isNotEmpty) return value;
-            }
-          }
-        }
-
-        for (final entry in properties.entries) {
-          final key = entry.key.toLowerCase();
-          if (key.contains('name') ||
-              key.contains('onoma') ||
-              key.contains('das') ||
-              key.contains('ypires')) {
-            final value = entry.value?.toString().trim();
-            if (value != null && value.isNotEmpty) return value;
-          }
-        }
-      } catch (_) {}
-    }
-
     return null;
   }
 
@@ -1563,8 +1488,6 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
         final fireData = jsonDecode(fireRiskRes.body);
         final forestServices =
             fireData['forest_services'] as Map<String, dynamic>?;
-        final regions = fireData['regions'] as Map<String, dynamic>?;
-        var forestRiskApplied = false;
 
         if (forestServices != null) {
           final forestService =
@@ -1575,22 +1498,16 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
 
           if (forestService != null) {
             final normalize = (String value) => value
-                .toLowerCase()
-                .replaceAll(
-                  RegExp(
-                    r'[^a-zA-Z0-9α-ωΑ-ΩάέήίόύώΆΈΉΊΌΎΏ]+',
-                  ),
-                  '',
-                );
+                .replaceAll(RegExp(r'Δ\.Υ\.', caseSensitive: false), '')
+                .replaceAll(RegExp(r'[.\s_-]+'), '')
+                .toUpperCase();
 
             final wanted = normalize(forestService);
             int? addressRisk;
 
             for (final entry in forestServices.entries) {
               final key = normalize(entry.key);
-              if (key == wanted ||
-                  key.contains(wanted) ||
-                  wanted.contains(key)) {
+              if (key == wanted) {
                 addressRisk = (entry.value is Map
                         ? entry.value['risk'] as num?
                         : entry.value as num?)
@@ -1604,77 +1521,8 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
                 hive.fireRiskCategoryToday = addressRisk!;
                 hive.fireRiskCategoryTomorrow = addressRisk!;
               });
-              forestRiskApplied = true;
             }
           }
-        }
-
-        if (!forestRiskApplied && regions != null) {
-          final normalizedRegion = (String value) => value
-              .toLowerCase()
-              .replaceAll('πε ', '')
-              .replaceAll(RegExp(r'\s+'), '');
-
-          int findRegionRisk(String location) {
-            final wanted = normalizedRegion(location);
-            if (wanted.isEmpty) return 2;
-
-            for (final entry in regions.entries) {
-              final key = normalizedRegion(entry.key);
-              if (key == wanted || key.contains(wanted) || wanted.contains(key)) {
-                return (entry.value as num).toInt();
-              }
-            }
-            return 2;
-          }
-
-          String addressLocation = hive.regionDescription;
-          String countyLocation = '';
-          String municipalityLocation = '';
-          final geoUrl = Uri.parse(
-            'https://nominatim.openstreetmap.org/reverse?format=json&lat=${hive.latitude}&lon=${hive.longitude}&accept-language=el',
-          );
-          final geoRes = await http.get(
-            geoUrl,
-            headers: {'User-Agent': 'BeehiveMonitorApp/1.0'},
-          ).timeout(const Duration(seconds: 4));
-          if (geoRes.statusCode == 200) {
-            final geoData = jsonDecode(geoRes.body);
-            final address = geoData['address'] as Map<String, dynamic>?;
-            if (address != null) {
-              addressLocation =
-                  address['village'] ??
-                  address['town'] ??
-                  address['city'] ??
-                  address['municipality'] ??
-                  address['county'] ??
-                  addressLocation;
-              countyLocation =
-                  address['county']?.toString() ??
-                  address['state_district']?.toString() ??
-                  '';
-              municipalityLocation =
-                  address['municipality']?.toString() ??
-                  '';
-              hive.regionDescription = addressLocation;
-            }
-          }
-
-          int addressRisk = findRegionRisk(addressLocation);
-          if (addressRisk == 2 &&
-              addressLocation != municipalityLocation &&
-              municipalityLocation.isNotEmpty) {
-            addressRisk = findRegionRisk(municipalityLocation);
-          }
-          if (addressRisk == 2 &&
-              addressLocation != countyLocation &&
-              countyLocation.isNotEmpty) {
-            addressRisk = findRegionRisk(countyLocation);
-          }
-          setState(() { 
-            hive.fireRiskCategoryToday = addressRisk;
-            hive.fireRiskCategoryTomorrow = addressRisk;
-          });
         }
       }
 
