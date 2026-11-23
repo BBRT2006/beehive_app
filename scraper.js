@@ -1,11 +1,15 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const Jimp = require('jimp');
+const XLSX = require('xlsx');
 
 
 // ============================================================
 // CONFIG
 // ============================================================
+
+const MAP_URL =
+  'https://civilprotection.gov.gr/xartis';
 
 const ARCHIVE_URL =
   'https://civilprotection.gov.gr/arxeio-imerision-xartwn?page=0%2C0';
@@ -24,6 +28,39 @@ const REGIONAL_UNITS_URL =
 
 const REFERENCE_WIDTH = 1384;
 const REFERENCE_HEIGHT = 1453;
+
+const FOREST_SERVICES_XLSX =
+  './fire_hazard_scraper_coordinates_corrected.xlsx';
+
+function loadForestServicePoints(filePath) {
+  const workbook = XLSX.readFile(filePath);
+  const sheetName = workbook.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    defval: null
+  });
+
+  const points = {};
+  for (const row of rows) {
+    const name =
+      String(row['ΟΝΟΜΑ'] || '').trim();
+    const x = Number(row['X']);
+    const y = Number(row['Y']);
+
+    if (!name || !Number.isFinite(x) || !Number.isFinite(y)) {
+      continue;
+    }
+
+    points[name] = { x, y };
+  }
+
+  if (Object.keys(points).length === 0) {
+    throw new Error(
+      'Το Excel δεν περιέχει έγκυρες Δ.Υ. συντεταγμένες.'
+    );
+  }
+
+  return points;
+}
 
 
 // ============================================================
@@ -904,6 +941,13 @@ async function scrape() {
     await puppeteer.launch({
 
       headless: true,
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH ||
+        (
+          fs.existsSync('/usr/bin/google-chrome')
+            ? '/usr/bin/google-chrome'
+            : undefined
+        ),
 
       args: [
         '--no-sandbox',
@@ -936,7 +980,7 @@ async function scrape() {
 
 
     await page.goto(
-      ARCHIVE_URL,
+      MAP_URL,
       {
         waitUntil: 'domcontentloaded',
         timeout: 90000
@@ -948,41 +992,75 @@ async function scrape() {
     // FIND LATEST MAP LINK
     // ========================================================
 
-    const latest =
+    let latest =
       await page.evaluate(() => {
 
-        const links =
+        const candidates =
           Array.from(
-            document.querySelectorAll('a')
-          );
-
-
-        const result =
-          links
-
-            .map(a => ({
+            document.querySelectorAll('a, img')
+          )
+            .map(element => ({
               text:
-                (a.innerText || '').trim(),
+                (
+                  element.innerText ||
+                  element.alt ||
+                  element.title ||
+                  ''
+                ).trim(),
 
               href:
-                a.href
-
+                element.href ||
+                element.src ||
+                ''
             }))
-
             .filter(item =>
-              item.text
-                .toLowerCase()
-                .includes(
-                  'ημερήσιος χάρτης πρόβλεψης'
-                )
+              /\.(jpg|jpeg)$/i.test(
+                item.href.split('?')[0]
+              ) ||
+              /χάρτ|χάρτης|fire|risk|πρόβλεψης/i.test(
+                item.text
+              )
             );
 
-
-        return result.length > 0
-          ? result[0]
-          : null;
-
+        return candidates.find(item =>
+          /(?:^|\/)\d{6}\.(?:jpg|jpeg)$/i.test(
+            item.href
+          )
+        ) || candidates.find(item =>
+          /\.(jpg|jpeg)$/i.test(
+            item.href.split('?')[0]
+          )
+        ) || null;
       });
+
+    if (!latest) {
+      await page.goto(
+        ARCHIVE_URL,
+        {
+          waitUntil: 'domcontentloaded',
+          timeout: 90000
+        }
+      );
+
+      latest =
+        await page.evaluate(() => {
+          const candidates =
+            Array.from(
+              document.querySelectorAll('a')
+            )
+              .map(a => ({
+                text: (a.innerText || '').trim(),
+                href: a.href
+              }))
+              .filter(item =>
+                /ημερήσιος χάρτης πρόβλεψης/i.test(
+                  item.text
+                )
+              );
+
+          return candidates[0] || null;
+        });
+    }
 
 
     if (!latest) {
@@ -1148,66 +1226,40 @@ async function scrape() {
 
 
     // ========================================================
-    // GET OFFICIAL PE DATA
+    // ANALYZE FOREST SERVICES
     // ========================================================
 
-    const officialRegions =
-      await getRegionalUnits();
+    const forestServicePoints =
+      loadForestServicePoints(
+        FOREST_SERVICES_XLSX
+      );
 
+    const forestServices = {};
+    const forestServiceDetails = {};
 
     console.log(
-      `Official GIS regions: ` +
-      `${officialRegions.length}`
+      `Δ.Υ. συντεταγμένες: ` +
+      `${Object.keys(forestServicePoints).length}`
     );
-
-
-    // ========================================================
-    // ANALYZE REGIONS
-    // ========================================================
-
-    const regions = [];
-
 
     for (
       const [
-        regionName,
+        forestServiceName,
         referenceCoords
       ]
-      of Object.entries(REGION_POINTS)
+      of Object.entries(forestServicePoints)
     ) {
-
-      const official =
-        findOfficialRegion(
-          regionName,
-          officialRegions
-        );
-
-
-      if (!official) {
-
-        console.log(
-          `⚠️ Δεν βρέθηκε GIS match: ` +
-          `${regionName}`
-        );
-
-        continue;
-
-      }
-
-
       const x =
         Math.round(
           referenceCoords.x *
           scaleX
         );
 
-
       const y =
         Math.round(
           referenceCoords.y *
           scaleY
         );
-
 
       const result =
         getRiskFromArea(
@@ -1217,61 +1269,29 @@ async function scrape() {
           5
         );
 
+      forestServices[forestServiceName] =
+        result.risk;
 
-      regions.push({
-
-        code:
-          official.code,
-
-        nameGr:
-          official.nameGr,
-
-        nameEn:
-          official.nameEn,
-
-        risk:
-          result.risk,
-
-        riskName:
-          getRiskName(
-            result.risk
-          ),
-
-        pixel: {
-
-          x: x,
-
-          y: y
-
-        },
-
-        pixelCounts:
-          result.counts
-
-      });
-
+      forestServiceDetails[forestServiceName] = {
+        name: forestServiceName,
+        x,
+        y,
+        risk: result.risk,
+        riskName: getRiskName(result.risk),
+        pixelCounts: result.counts
+      };
 
       console.log(
-        `${official.nameGr}: ` +
+        `Δ.Υ. ${forestServiceName}: ` +
         `${result.risk} - ` +
         `${getRiskName(result.risk)}`
       );
-
     }
 
 
     // ========================================================
     // SORT BY CODE
     // ========================================================
-
-    regions.sort(
-      (a, b) =>
-        String(a.code)
-          .localeCompare(
-            String(b.code)
-          )
-    );
-
 
     // ========================================================
     // OUTPUT
@@ -1301,11 +1321,14 @@ async function scrape() {
 
       },
 
-      regionCount:
-        regions.length,
+      forestServiceCount:
+        Object.keys(forestServices).length,
 
-      regions:
-        regions
+      forest_services:
+        forestServices,
+
+      forest_service_details:
+        forestServiceDetails
 
     };
 
@@ -1404,7 +1427,7 @@ async function scrape() {
     );
 
     console.log(
-      `✅ ${regions.length} Περιφερειακές Ενότητες`
+      `✅ ${Object.keys(forestServices).length} Δ.Υ.`
     );
 
     console.log(
@@ -1427,6 +1450,8 @@ async function scrape() {
     console.error(
       error.message
     );
+
+    process.exitCode = 1;
 
   }
 

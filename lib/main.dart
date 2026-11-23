@@ -1266,8 +1266,8 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
           loaded.add(HiveData(
             id: row['hive_id'] ?? 'N/A', 
             name: row['hive_name'] ?? 'Κυψέλη', 
-            apiaryName: row['apiary_name'] ?? 'Μελισσοκομείο Ξάνθης',
-            regionDescription: 'Ξάνθη', 
+            apiaryName: row['apiary_name'] ?? 'Μελισσοκομείο ΞΑΝΘΗΣ',
+            regionDescription: 'ΞΑΝΘΗΣ',
             sitePlacedDate: DateTime.now(), 
             lastTelemetryTime: DateTime.now().subtract(const Duration(minutes: 5)),
             currentWeight: 45.0, 
@@ -1359,6 +1359,123 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
     } catch (_) {}
   }
 
+  Future<String?> _getForestServiceForGps(
+    double latitude,
+    double longitude,
+  ) async {
+    const arcgisEndpoint =
+        'https://gis-perslab.topo.auth.gr/main/rest/services/'
+        'LIFE/%CE%9F%CE%A1%CE%99%CE%91_%CE%94%CE%91%CE%A3%CE%91%CE%A1%CE%A7%CE%95%CE%99%CE%A9%CE%9D/'
+        'FeatureServer/0/query';
+
+    final arcgisUri = Uri.parse(
+      '$arcgisEndpoint'
+      '?f=json'
+      '&outFields=DASARXEIO,CITY'
+      '&returnGeometry=false'
+      '&geometry=$longitude,$latitude'
+      '&geometryType=esriGeometryPoint'
+      '&inSR=4326'
+      '&outSR=4326'
+      '&spatialRel=esriSpatialRelIntersects',
+    );
+
+    try {
+      final response =
+          await http.get(arcgisUri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final features = data['features'] as List<dynamic>?;
+        if (features != null && features.isNotEmpty) {
+          final properties =
+              features.first['attributes'] as Map<String, dynamic>?;
+          final service =
+              properties?['DASARXEIO']?.toString().trim();
+          if (service != null && service.isNotEmpty) {
+            return service;
+          }
+        }
+      }
+    } catch (_) {}
+
+    const layer =
+        'geodata.gov.gr:3fbc1aea-3bdd-4bbc-811c-e11758213a8d';
+    const server =
+        'https://geodata.gov.gr/geoserver/ows';
+    const geometryFields = [
+      'geom',
+      'the_geom',
+      'geometry',
+      'shape',
+      'wkb_geometry',
+    ];
+
+    for (final geometryField in geometryFields) {
+      final uri = Uri.parse(
+        '$server?service=WFS'
+        '&version=2.0.0'
+        '&request=GetFeature'
+        '&typeNames=$layer'
+        '&outputFormat=application/json'
+        '&count=1'
+        '&cql_filter='
+        'INTERSECTS($geometryField,'
+        'POINT($longitude $latitude))',
+      );
+
+      try {
+        final response =
+            await http.get(uri).timeout(const Duration(seconds: 8));
+        if (response.statusCode != 200) continue;
+
+        final data = jsonDecode(response.body);
+        final features = data['features'] as List<dynamic>?;
+        if (features == null || features.isEmpty) continue;
+
+        final properties =
+            features.first['properties'] as Map<String, dynamic>?;
+        if (properties == null) continue;
+
+        final priorityKeys = [
+          'dasiki_ypiresia',
+          'forest_service',
+          'name',
+          'name_gr',
+          'onoma',
+          'dasarxeio',
+          'dasikes',
+        ];
+
+        for (final key in priorityKeys) {
+          for (final entry in properties.entries) {
+            final normalizedKey = entry.key
+                .toLowerCase()
+                .replaceAll(RegExp(r'[^a-z0-9_\u0370-\u03ff]'), '');
+            if (normalizedKey == key ||
+                normalizedKey.contains(key) ||
+                key.contains(normalizedKey)) {
+              final value = entry.value?.toString().trim();
+              if (value != null && value.isNotEmpty) return value;
+            }
+          }
+        }
+
+        for (final entry in properties.entries) {
+          final key = entry.key.toLowerCase();
+          if (key.contains('name') ||
+              key.contains('onoma') ||
+              key.contains('das') ||
+              key.contains('ypires')) {
+            final value = entry.value?.toString().trim();
+            if (value != null && value.isNotEmpty) return value;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
   Future<void> _fetchLiveOnlineData() async {
     final hive = activeHive;
     if (hive == null) return;
@@ -1444,11 +1561,119 @@ class _MultiHiveDashboardState extends State<MultiHiveDashboard> {
       
       if (fireRiskRes.statusCode == 200) {
         final fireData = jsonDecode(fireRiskRes.body);
+        final forestServices =
+            fireData['forest_services'] as Map<String, dynamic>?;
         final regions = fireData['regions'] as Map<String, dynamic>?;
-        if (regions != null) {
+        var forestRiskApplied = false;
+
+        if (forestServices != null) {
+          final forestService =
+              await _getForestServiceForGps(
+                hive.latitude,
+                hive.longitude,
+              );
+
+          if (forestService != null) {
+            final normalize = (String value) => value
+                .toLowerCase()
+                .replaceAll(
+                  RegExp(
+                    r'[^a-zA-Z0-9α-ωΑ-ΩάέήίόύώΆΈΉΊΌΎΏ]+',
+                  ),
+                  '',
+                );
+
+            final wanted = normalize(forestService);
+            int? addressRisk;
+
+            for (final entry in forestServices.entries) {
+              final key = normalize(entry.key);
+              if (key == wanted ||
+                  key.contains(wanted) ||
+                  wanted.contains(key)) {
+                addressRisk = (entry.value is Map
+                        ? entry.value['risk'] as num?
+                        : entry.value as num?)
+                    ?.toInt();
+                break;
+              }
+            }
+
+            if (addressRisk != null) {
+              setState(() {
+                hive.fireRiskCategoryToday = addressRisk!;
+                hive.fireRiskCategoryTomorrow = addressRisk!;
+              });
+              forestRiskApplied = true;
+            }
+          }
+        }
+
+        if (!forestRiskApplied && regions != null) {
+          final normalizedRegion = (String value) => value
+              .toLowerCase()
+              .replaceAll('πε ', '')
+              .replaceAll(RegExp(r'\s+'), '');
+
+          int findRegionRisk(String location) {
+            final wanted = normalizedRegion(location);
+            if (wanted.isEmpty) return 2;
+
+            for (final entry in regions.entries) {
+              final key = normalizedRegion(entry.key);
+              if (key == wanted || key.contains(wanted) || wanted.contains(key)) {
+                return (entry.value as num).toInt();
+              }
+            }
+            return 2;
+          }
+
+          String addressLocation = hive.regionDescription;
+          String countyLocation = '';
+          String municipalityLocation = '';
+          final geoUrl = Uri.parse(
+            'https://nominatim.openstreetmap.org/reverse?format=json&lat=${hive.latitude}&lon=${hive.longitude}&accept-language=el',
+          );
+          final geoRes = await http.get(
+            geoUrl,
+            headers: {'User-Agent': 'BeehiveMonitorApp/1.0'},
+          ).timeout(const Duration(seconds: 4));
+          if (geoRes.statusCode == 200) {
+            final geoData = jsonDecode(geoRes.body);
+            final address = geoData['address'] as Map<String, dynamic>?;
+            if (address != null) {
+              addressLocation =
+                  address['village'] ??
+                  address['town'] ??
+                  address['city'] ??
+                  address['municipality'] ??
+                  address['county'] ??
+                  addressLocation;
+              countyLocation =
+                  address['county']?.toString() ??
+                  address['state_district']?.toString() ??
+                  '';
+              municipalityLocation =
+                  address['municipality']?.toString() ??
+                  '';
+              hive.regionDescription = addressLocation;
+            }
+          }
+
+          int addressRisk = findRegionRisk(addressLocation);
+          if (addressRisk == 2 &&
+              addressLocation != municipalityLocation &&
+              municipalityLocation.isNotEmpty) {
+            addressRisk = findRegionRisk(municipalityLocation);
+          }
+          if (addressRisk == 2 &&
+              addressLocation != countyLocation &&
+              countyLocation.isNotEmpty) {
+            addressRisk = findRegionRisk(countyLocation);
+          }
           setState(() { 
-            hive.fireRiskCategoryToday = regions['Ξάνθη'] ?? 2; 
-            hive.fireRiskCategoryTomorrow = regions['Ξάνθη'] ?? 2; 
+            hive.fireRiskCategoryToday = addressRisk;
+            hive.fireRiskCategoryTomorrow = addressRisk;
           });
         }
       }
