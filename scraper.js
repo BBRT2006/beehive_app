@@ -9,6 +9,67 @@ const COORDINATES_FILE =
   './fire_hazard_scraper_coordinates_corrected.xlsx';
 const REFERENCE_WIDTH = 1384;
 const REFERENCE_HEIGHT = 1453;
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+  'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/122.0.0.0 Safari/537.36';
+
+async function downloadMapImage(page, imageUrl) {
+  const response = await fetch(imageUrl, {
+    headers: {
+      Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      Referer: MAP_URL,
+      'User-Agent': USER_AGENT
+    }
+  });
+
+  if (response.ok) {
+    const image = Buffer.from(await response.arrayBuffer());
+    if (isJpeg(image)) {
+      return image;
+    }
+
+    console.warn(
+      'Direct image response was not a JPEG; retrying in browser.'
+    );
+  } else {
+    console.warn(
+      `Direct image download returned ${response.status}; retrying in browser.`
+    );
+  }
+
+  await page.setExtraHTTPHeaders({
+    Referer: MAP_URL
+  });
+
+  const browserResponse = await page.goto(imageUrl, {
+    waitUntil: 'domcontentloaded',
+    timeout: 90000
+  });
+
+  if (!browserResponse || !browserResponse.ok()) {
+    const status = browserResponse
+      ? browserResponse.status()
+      : 'no response';
+    throw new Error(`Αποτυχία λήψης χάρτη: ${status}`);
+  }
+
+  const image = await browserResponse.buffer();
+  if (!isJpeg(image)) {
+    throw new Error('Η ληφθείσα εικόνα χάρτη δεν είναι έγκυρο JPEG.');
+  }
+
+  return image;
+}
+
+function isJpeg(buffer) {
+  return (
+    buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff
+  );
+}
 
 function normalizeGreek(value) {
   return String(value || '')
@@ -153,11 +214,7 @@ async function scrape() {
 
   try {
     const page = await browser.newPage();
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-      'Chrome/122.0.0.0 Safari/537.36'
-    );
+    await page.setUserAgent(USER_AGENT);
 
     await page.goto(MAP_URL, {
       waitUntil: 'domcontentloaded',
@@ -240,13 +297,9 @@ async function scrape() {
       throw new Error('Δεν μπόρεσε να προσδιοριστεί η ημερομηνία του χάρτη.');
     }
 
-    const response = await fetch(mapCandidate.href);
-    if (!response.ok) {
-      throw new Error(`Αποτυχία λήψης χάρτη: ${response.status}`);
-    }
-
+    console.log(`Downloading map image: ${mapCandidate.href}`);
     const image = await Jimp.read(
-      Buffer.from(await response.arrayBuffer())
+      await downloadMapImage(page, mapCandidate.href)
     );
     const scaleX = image.bitmap.width / REFERENCE_WIDTH;
     const scaleY = image.bitmap.height / REFERENCE_HEIGHT;
