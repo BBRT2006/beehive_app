@@ -123,13 +123,19 @@ function loadForestServicePoints() {
 }
 
 function extractMapDate(text) {
-  const filenameMatch =
-    String(text || '').match(/(?:^|\/)(\d{2})(\d{2})(\d{2})(?:\.jpg|\.jpeg)?$/i);
-  if (filenameMatch) {
-    const year = `20${filenameMatch[1]}`;
-    const month = filenameMatch[2].padStart(2, '0');
-    const day = filenameMatch[3].padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  const value = String(text || '').split('?')[0];
+  const shortMatch = value.match(
+    /(?:^|\/)(\d{2})(\d{2})(\d{2})(?:[_-]0)?(?:\.(?:jpg|jpeg|png|webp))$/i
+  );
+  if (shortMatch) {
+    return `20${shortMatch[1]}-${shortMatch[2].padStart(2, '0')}-${shortMatch[3].padStart(2, '0')}`;
+  }
+
+  const longMatch = value.match(
+    /(?:^|\/)(\d{4})(\d{2})(\d{2})(?:\.(?:jpg|jpeg|png|webp))$/i
+  );
+  if (longMatch) {
+    return `${longMatch[1]}-${longMatch[2].padStart(2, '0')}-${longMatch[3].padStart(2, '0')}`;
   }
 
   const match = String(text || '').match(
@@ -145,7 +151,7 @@ function extractMapDate(text) {
 async function findDirectMapImage() {
   const today = new Date();
 
-  for (let offset = 0; offset <= 7; offset++) {
+  for (let offset = 0; offset <= 14; offset++) {
     const date = new Date(today);
     date.setUTCDate(today.getUTCDate() - offset);
 
@@ -153,20 +159,27 @@ async function findDirectMapImage() {
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
     const day = String(date.getUTCDate()).padStart(2, '0');
     const shortYear = String(year).slice(-2);
-    const filename = `${shortYear}${month}${day}.jpg`;
-    const url =
+    const base =
       `https://civilprotection.gov.gr/sites/default/files/` +
-      `${year}-${month}/${filename}`;
+      `${year}-${month}/`;
+    const filenames = [
+      `${shortYear}${month}${day}.jpg`,
+      `${shortYear}${month}${day}_0.jpg`,
+      `${shortYear}${month}${day}-0.jpg`,
+      `${year}${month}${day}.jpg`,
+      `${shortYear}${month}${day}.jpeg`,
+      `${shortYear}${month}${day}.png`
+    ];
 
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return {
-          text: filename,
-          href: url
-        };
-      }
-    } catch (_) {}
+    for (const filename of filenames) {
+      const url = `${base}${filename}`;
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          return { text: filename, href: url };
+        }
+      } catch (_) {}
+    }
   }
 
   return null;
@@ -201,6 +214,22 @@ function getRiskFromArea(image, centerX, centerY, radius = 5) {
   return { risk, counts };
 }
 
+async function gotoWithRetry(page, url) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 90000
+      });
+    } catch (error) {
+      lastError = error;
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+  }
+  throw lastError;
+}
+
 async function scrape() {
   const browser = await puppeteer.launch({
     headless: true,
@@ -216,20 +245,22 @@ async function scrape() {
     const page = await browser.newPage();
     await page.setUserAgent(USER_AGENT);
 
-    await page.goto(MAP_URL, {
-      waitUntil: 'domcontentloaded',
-      timeout: 90000
-    });
-
-    let mapCandidate = await page.evaluate(() => {
+    let mapCandidate = null;
+    try {
+      await gotoWithRetry(page, MAP_URL);
+      mapCandidate = await page.evaluate(() => {
       const elements = [
         ...document.querySelectorAll('a'),
         ...document.querySelectorAll('img')
       ];
 
       for (const element of elements) {
-        const href = element.href || element.src || '';
-        if (/\.(jpg|jpeg)$/i.test(href.split('?')[0])) {
+        const href =
+          element.href ||
+          element.src ||
+          element.dataset.src ||
+          '';
+        if (/\.(jpg|jpeg|png|webp)$/i.test(href.split('?')[0])) {
           return {
             text:
               (element.innerText ||
@@ -241,44 +272,47 @@ async function scrape() {
         }
       }
       return null;
-    });
+      });
+    } catch (_) {}
 
     if (!mapCandidate) {
-      await page.goto(ARCHIVE_URL, {
-        waitUntil: 'domcontentloaded',
-        timeout: 90000
-      });
-
-      mapCandidate = await page.evaluate(() => {
+      try {
+        await gotoWithRetry(page, ARCHIVE_URL);
+        mapCandidate = await page.evaluate(() => {
         const link = Array.from(document.querySelectorAll('a')).find(a =>
           /ημερήσιος χάρτης πρόβλεψης/i.test(a.innerText || '')
         );
         return link
           ? { text: (link.innerText || '').trim(), href: link.href }
           : null;
-      });
-
-      if (mapCandidate) {
-        await page.goto(mapCandidate.href, {
-          waitUntil: 'domcontentloaded',
-          timeout: 90000
         });
-        mapCandidate = await page.evaluate(previous => {
-          const elements = [
-            ...document.querySelectorAll('a'),
-            ...document.querySelectorAll('img')
-          ];
-          const jpg = elements.find(element => {
-            const href = element.href || element.src || '';
-            return /\.(jpg|jpeg)$/i.test(href.split('?')[0]);
-          });
-          if (!jpg) return null;
-          return {
-            text: previous.text,
-            href: jpg.href || jpg.src
-          };
-        }, mapCandidate);
-      }
+
+        if (mapCandidate) {
+          await gotoWithRetry(page, mapCandidate.href);
+          mapCandidate = await page.evaluate(previous => {
+            const elements = [
+              ...document.querySelectorAll('a'),
+              ...document.querySelectorAll('img')
+            ];
+            const jpg = elements.find(element => {
+              const href =
+                element.href ||
+                element.src ||
+                element.dataset.src ||
+                '';
+              return /\.(jpg|jpeg|png|webp)$/i.test(href.split('?')[0]);
+            });
+            if (!jpg) return null;
+            return {
+              text: previous.text,
+              href:
+                jpg.href ||
+                jpg.src ||
+                jpg.dataset.src
+            };
+          }, mapCandidate);
+        }
+      } catch (_) {}
     }
 
     if (!mapCandidate) {
@@ -362,4 +396,12 @@ async function scrape() {
   }
 }
 
-scrape();
+if (require.main === module) {
+  scrape();
+}
+
+module.exports = {
+  extractMapDate,
+  findDirectMapImage,
+  getRiskLevel
+};
